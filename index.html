@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storage Cleaner</title>
+<style>
+/* macOS-style glass UI. In the menu bar app (?app=1) the page is transparent
+   and the native vibrancy shows through; in a browser a soft backdrop stands in. */
+:root {
+  color-scheme: light dark;
+  --ink: #1d1d1f; --muted: rgba(60,60,67,.62); --faint: rgba(60,60,67,.35);
+  --glass: rgba(255,255,255,.52); --glass-hi: rgba(255,255,255,.78); --glass-bar: rgba(246,246,248,.62);
+  --line: rgba(0,0,0,.075); --fill: rgba(120,120,128,.13); --fill-hi: rgba(120,120,128,.2);
+  --accent: #007aff; --accent-ink: #fff;
+  --safe: #248a3d; --safe-bg: rgba(52,199,89,.15); --caution: #b25000; --caution-bg: rgba(255,149,0,.16);
+  --danger: #d70015; --danger-bg: rgba(255,59,48,.13); --info: rgba(60,60,67,.7); --info-bg: var(--fill);
+  --shadow: 0 .5px 1px rgba(0,0,0,.08), 0 2px 10px rgba(0,0,0,.04);
+  --btn: rgba(255,255,255,.82); --btn-line: rgba(0,0,0,.12); --btn-shadow: 0 .5px 1px rgba(0,0,0,.12);
+  --page: radial-gradient(1200px 700px at 10% -10%, #cfe0ff 0, transparent 60%), radial-gradient(900px 600px at 110% 20%, #ffd9ec 0, transparent 55%), radial-gradient(900px 700px at 40% 120%, #d6f5e6 0, transparent 55%), #eef0f4;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f5f5f7; --muted: rgba(235,235,245,.6); --faint: rgba(235,235,245,.3);
+    --glass: rgba(44,44,48,.42); --glass-hi: rgba(58,58,62,.7); --glass-bar: rgba(30,30,32,.55);
+    --line: rgba(255,255,255,.08); --fill: rgba(120,120,128,.22); --fill-hi: rgba(120,120,128,.32);
+    --accent: #0a84ff;
+    --safe: #30d158; --safe-bg: rgba(48,209,88,.16); --caution: #ff9f0a; --caution-bg: rgba(255,159,10,.16);
+    --danger: #ff453a; --danger-bg: rgba(255,69,58,.16); --info: rgba(235,235,245,.65);
+    --shadow: 0 .5px 0 rgba(255,255,255,.04) inset, 0 2px 12px rgba(0,0,0,.18);
+    --btn: rgba(255,255,255,.1); --btn-line: rgba(255,255,255,.1); --btn-shadow: 0 .5px 0 rgba(255,255,255,.06) inset;
+    --page: radial-gradient(1200px 700px at 10% -10%, #1d2a4a 0, transparent 60%), radial-gradient(900px 600px at 110% 20%, #3a1d33 0, transparent 55%), radial-gradient(900px 700px at 40% 120%, #13342a 0, transparent 55%), #141416;
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--page); background-attachment: fixed; min-height: 100%; }
+html.app { background: transparent; }
+body { margin: 0; color: var(--ink); font: 13px/1.38 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; -webkit-user-select: none; user-select: none; }
+.path, code, .crumbs { -webkit-user-select: text; user-select: text; }
+button { font: inherit; color: inherit; cursor: default; }
+svg.i { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
+.wrap { max-width: 980px; margin: 0 auto; padding: 10px 12px 76px; }
+html.mode-window .wrap { padding-top: 34px; }
+
+/* header */
+header.top { display: flex; align-items: center; gap: 8px; padding: 2px 2px 8px; }
+header.top .title { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13.5px; flex: 1; }
+header.top .title svg { width: 18px; height: 18px; color: var(--accent); }
+.ib { width: 26px; height: 24px; display: inline-grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); padding: 0; }
+.ib:hover { background: var(--fill); color: var(--ink); }
+.ib:active { background: var(--fill-hi); }
+.app-only { display: none !important; }
+html.app .app-only { display: inline-grid !important; }
+html.mode-window .popover-only { display: none !important; }
+
+/* glass surfaces */
+.glass { background: var(--glass); -webkit-backdrop-filter: blur(24px) saturate(170%); backdrop-filter: blur(24px) saturate(170%); border: .5px solid var(--line); border-radius: 11px; box-shadow: var(--shadow); }
+
+/* disk summary */
+.disk { padding: 11px 13px 10px; margin-bottom: 10px; }
+.disk-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; }
+.disk-free { font-size: 22px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.disk-free small { display: block; font-size: 11.5px; font-weight: 400; color: var(--muted); letter-spacing: 0; margin-top: 2px; }
+.reclaim-pill { text-align: right; font-size: 11.5px; color: var(--muted); }
+.reclaim-pill b { display: block; color: var(--safe); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.meter { height: 6px; background: var(--fill); border-radius: 99px; overflow: hidden; margin: 9px 0 7px; display: flex; }
+.meter > i { display: block; height: 100%; transition: width .4s; }
+.meter .used { background: linear-gradient(90deg, var(--accent), #5e5ce6); }
+.meter .reclaim { background: var(--safe); }
+.legend { display: flex; gap: 12px; color: var(--muted); font-size: 11px; flex-wrap: wrap; }
+.legend b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: .5px; }
+
+/* segmented tabs */
+.tabbar { position: sticky; top: 0; z-index: 5; margin: 0 -12px 10px; padding: 6px 12px; -webkit-backdrop-filter: blur(20px) saturate(170%); backdrop-filter: blur(20px) saturate(170%); }
+html.mode-window .tabbar { top: 0; }
+nav.seg { display: flex; padding: 2px; gap: 2px; background: var(--fill); border-radius: 8px; }
+nav.seg button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px; border: 0; background: transparent; padding: 4px 6px; border-radius: 6px; color: var(--ink); font-size: 12px; white-space: nowrap; min-width: 0; }
+nav.seg button:hover:not(.on) { background: var(--fill); }
+nav.seg button.on { background: var(--glass-hi); box-shadow: 0 .5px 1.5px rgba(0,0,0,.18); font-weight: 550; }
+nav.seg .count { font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+nav.seg .count:empty { display: none; }
+@media (max-width: 620px) { nav.seg .count { display: none; } nav.seg button svg { display: none; } }
+
+/* toolbar */
+.toolbar { display: flex; gap: 6px; align-items: center; margin: 0 0 8px; }
+.toolbar .grow { flex: 1; min-width: 0; }
+.toolbar .hint { margin: 0 2px; }
+.hint { color: var(--muted); font-size: 11px; margin: 0 2px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn { display: inline-flex; align-items: center; gap: 5px; border: .5px solid var(--btn-line); background: var(--btn); box-shadow: var(--btn-shadow); border-radius: 6px; padding: 2.5px 9px; font-size: 12px; line-height: 1.35; }
+.btn:hover { filter: brightness(.97); }
+.btn:active { filter: brightness(.92); }
+.btn.primary { background: var(--accent); border-color: transparent; color: var(--accent-ink); font-weight: 550; }
+.btn.danger { color: var(--danger); }
+.btn:disabled { opacity: .45; }
+.btn.sm { padding: 1.5px 7px; font-size: 11.5px; }
+.btn.icon { padding: 2px 5px; }
+.btn.icon svg { width: 13px; height: 13px; }
+label.chk { display: inline-flex; gap: 5px; align-items: center; color: var(--muted); font-size: 11.5px; }
+input[type=checkbox] { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
+
+/* grouped lists */
+.card { overflow: hidden; margin-bottom: 10px; }
+.card h3 { margin: 0; padding: 6px 12px; font-size: 11px; font-weight: 600; color: var(--muted); border-bottom: .5px solid var(--line); display: flex; justify-content: space-between; gap: 8px; background: var(--fill); }
+.card h3 span:last-child { font-variant-numeric: tabular-nums; }
+.row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 6px 10px 6px 12px; border-bottom: .5px solid var(--line); min-height: 38px; }
+.row:last-child { border-bottom: 0; }
+.row:hover { background: var(--fill); }
+.row.done { opacity: .4; }
+.lead { display: grid; place-items: center; color: var(--muted); }
+.lead svg { width: 15px; height: 15px; }
+.lead .folder { color: var(--accent); fill: currentColor; fill-opacity: .18; }
+.main { min-width: 0; }
+.row.x .main { cursor: pointer; }
+.name { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.path { display: none; color: var(--faint); font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; margin-top: 2px; }
+.row.open .note { white-space: normal; }
+.row.open .path { display: block; }
+.row.open .name { white-space: normal; }
+.side { display: flex; align-items: center; gap: 8px; }
+.sizecol { width: 66px; }
+.size { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 12px; text-align: right; }
+.sbar { height: 3px; background: var(--fill); border-radius: 99px; margin-top: 3px; overflow: hidden; }
+.sbar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; opacity: .8; }
+.badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 0 6px; border-radius: 99px; margin-left: 5px; vertical-align: 1px; line-height: 15px; }
+.badge.safe { color: var(--safe); background: var(--safe-bg); }
+.badge.caution { color: var(--caution); background: var(--caution-bg); }
+.badge.danger { color: var(--danger); background: var(--danger-bg); }
+.badge.info { color: var(--info); background: var(--info-bg); }
+.actions { display: flex; gap: 4px; justify-content: flex-end; align-items: center; }
+.actions .note { font-size: 11px; }
+
+.explore .actions { min-width: 50px; }
+.explore .row.dir .name[data-p] { cursor: pointer; }
+.explore .row.dir .name[data-p]:hover { color: var(--accent); }
+.crumbs { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; display: flex; flex-wrap: wrap; gap: 1px; align-items: center; min-width: 0; }
+.crumbs a { color: var(--accent); cursor: pointer; padding: 0 3px; border-radius: 4px; }
+.crumbs a:hover { background: var(--fill-hi); }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; }
+
+.loading { padding: 34px 16px; text-align: center; color: var(--muted); font-size: 12px; }
+.spin { display: inline-block; width: 12px; height: 12px; border: 1.8px solid var(--fill-hi); border-top-color: var(--accent); border-radius: 50%; animation: s .8s linear infinite; vertical-align: -2px; margin-right: 7px; }
+@keyframes s { to { transform: rotate(360deg); } }
+.empty { padding: 24px 16px; text-align: center; color: var(--muted); font-size: 12px; }
+.err { color: var(--danger); padding: 14px; }
+.foot-note { color: var(--muted); font-size: 11px; margin: 0 2px; }
+
+/* floating selection bar */
+.dock { position: fixed; left: 10px; right: 10px; bottom: 10px; padding: 7px 8px 7px 13px; display: none; z-index: 6; max-width: 960px; margin: 0 auto; }
+.dock.show { display: flex; align-items: center; gap: 8px; }
+.dock .grow { flex: 1; font-size: 12px; color: var(--muted); }
+.dock b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* alert sheet */
+dialog { border: .5px solid var(--line); border-radius: 13px; background: var(--glass-hi); -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%); color: var(--ink); max-width: 400px; width: calc(100% - 32px); padding: 16px 16px 14px; box-shadow: 0 12px 40px rgba(0,0,0,.25); font-size: 12.5px; }
+dialog::backdrop { background: rgba(0,0,0,.18); }
+dialog h2 { margin: 0 0 6px; font-size: 13.5px; font-weight: 650; }
+dialog p { margin: 6px 0; }
+dialog ul { padding: 0; list-style: none; margin: 8px 0; max-height: 200px; overflow: auto; border-radius: 8px; background: var(--fill); }
+dialog li { padding: 5px 9px; border-bottom: .5px solid var(--line); }
+dialog li:last-child { border: 0; }
+dialog li .note { white-space: normal; }
+dialog code { font-size: 11px; word-break: break-all; }
+dialog .foot { display: flex; justify-content: flex-end; gap: 7px; margin-top: 12px; }
+dialog .foot .btn { padding: 3px 14px; }
+
+.toast { position: fixed; left: 50%; bottom: 60px; transform: translate(-50%, 8px); background: var(--glass-hi); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); border: .5px solid var(--line); box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 7px 13px; border-radius: 10px; max-width: min(420px, calc(100% - 32px)); font-size: 12px; opacity: 0; transition: .25s; pointer-events: none; z-index: 10; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* mode switch + developer view */
+nav.seg.mode { flex: 1; max-width: 230px; margin-right: auto; }
+nav.seg.mode button { font-size: 12px; padding: 3px 8px; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); padding: 0; margin-bottom: 10px; overflow: hidden; }
+.stat { border: 0; background: none; text-align: left; padding: 9px 12px; border-right: .5px solid var(--line); }
+.stat:last-child { border-right: 0; }
+.stat:hover { background: var(--fill); }
+.stat b { display: block; font-size: 20px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.stat span { font-size: 11px; color: var(--muted); }
+.stat.warn b { color: var(--caution); }
+.stat.ok b { color: var(--safe); }
+.search { flex: 1; min-width: 0; font: inherit; font-size: 12px; color: var(--ink); background: var(--fill); border: .5px solid transparent; border-radius: 6px; padding: 3px 8px; outline: none; }
+.search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+select.sel { font: inherit; font-size: 11.5px; color: var(--ink); background: var(--btn); border: .5px solid var(--btn-line); border-radius: 6px; padding: 1px 4px; width: 78px; }
+.sdot { width: 8px; height: 8px; border-radius: 50%; background: var(--fill-hi); }
+.sdot.on { background: var(--safe); box-shadow: 0 0 0 3px var(--safe-bg); }
+.sdot.err { background: var(--danger); }
+.sdot.wait { background: var(--caution); }
+.sub { color: var(--muted); font-weight: 400; }
+.mono { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.row .more { display: none; grid-column: 1 / -1; margin: 2px 0 2px 27px; }
+.row.open .more { display: block; }
+.more .btns { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+pre.log { margin: 4px 0 0; max-height: 180px; overflow: auto; padding: 7px 9px; border-radius: 7px; background: rgba(0,0,0,.72); color: #e6e6e6; font: 10.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; -webkit-user-select: text; user-select: text; }
+.chipline { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.chipline .badge { margin: 0; }
+.badge.accent { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-thumb { background: var(--fill-hi); border-radius: 99px; border: 2px solid transparent; background-clip: content-box; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <nav class="seg mode" id="mode"><button data-mode="storage" class="on">Storage</button><button data-mode="dev">Developer</button></nav>
+    <button class="ib" id="h-rescan" title="Rescan everything"><svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+    <button class="ib app-only popover-only" id="h-window" title="Open in a window"><svg class="i" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M10 20H4v-6"/><path d="M20 4l-7 7"/><path d="M4 20l7-7"/></svg></button>
+    <button class="ib app-only" id="h-quit" title="Quit Storage Cleaner"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg></button>
+  </header>
+
+  <div id="view-storage">
+  <section class="disk glass" id="disk"><div class="loading"><span class="spin"></span>Reading disk…</div></section>
+
+  <div class="tabbar">
+    <nav class="seg" id="tabs">
+      <button data-tab="clean" class="on"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>Clean<span class="count" id="c-clean"></span></button>
+      <button data-tab="projects"><svg class="i" viewBox="0 0 24 24"><path d="M8 7 3 12l5 5"/><path d="m16 7 5 5-5 5"/></svg>Projects<span class="count" id="c-projects"></span></button>
+      <button data-tab="library"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="4" width="4" height="16" rx="1"/><rect x="10" y="4" width="4" height="16" rx="1"/><path d="m16 5.5 3.8-1 3 14.5-3.8 1z" transform="translate(-2 0)"/></svg>Library<span class="count" id="c-library"></span></button>
+      <button data-tab="explore"><svg class="i" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Explore</button>
+      <button data-tab="large"><svg class="i" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>Large<span class="count" id="c-large"></span></button>
+    </nav>
+  </div>
+
+  <section id="tab-clean"></section>
+  <section id="tab-projects" hidden></section>
+  <section id="tab-library" hidden></section>
+  <section id="tab-explore" hidden class="explore"></section>
+  <section id="tab-large" hidden></section>
+  </div>
+
+  <div id="view-dev" hidden>
+    <section class="stats glass" id="dev-stats">
+      <button class="stat" data-go="ports"><b id="st-ports">–</b><span>Dev ports open</span></button>
+      <button class="stat" data-go="servers"><b id="st-running">–</b><span>Running here</span></button>
+      <button class="stat" data-go="git"><b id="st-git">–</b><span>Repos need attention</span></button>
+    </section>
+    <div class="tabbar">
+      <nav class="seg" id="dev-tabs">
+        <button data-tab="ports" class="on"><svg class="i" viewBox="0 0 24 24"><path d="M9 3v5"/><path d="M15 3v5"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v4"/></svg>Ports<span class="count" id="c-ports"></span></button>
+        <button data-tab="servers"><svg class="i" viewBox="0 0 24 24"><path d="m7 5 11 7-11 7z"/></svg>Servers<span class="count" id="c-servers"></span></button>
+        <button data-tab="git"><svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 8.2v7.6"/><path d="M18 10.2c0 4-6 3-11 6"/></svg>Git<span class="count" id="c-git"></span></button>
+      </nav>
+    </div>
+    <section id="dtab-ports"></section>
+    <section id="dtab-servers" hidden></section>
+    <section id="dtab-git" hidden></section>
+  </div>
+</div>
+
+<div class="dock glass" id="dock">
+  <div class="grow"><b id="dock-n">0</b> selected · <b id="dock-size">0 B</b></div>
+  <button class="btn" id="dock-none">Deselect</button>
+  <button class="btn primary" id="dock-go">Clear Selected</button>
+</div>
+
+<dialog id="confirm">
+  <h2 id="cf-title"></h2>
+  <div id="cf-body"></div>
+  <div class="foot"><button class="btn" value="no" id="cf-no">Cancel</button><button class="btn primary" id="cf-yes">Clear</button></div>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const TOKEN = params.get('t');
+const IN_APP = params.has('app');
+if (IN_APP) document.documentElement.classList.add('app', 'mode-popover');
+const native = (cmd) => window.webkit?.messageHandlers?.app?.postMessage(cmd);
+// Called by the menu bar app when the page moves between the popover and a window.
+window.setMode = (m) => { const c = document.documentElement.classList; c.toggle('mode-window', m === 'window'); c.toggle('mode-popover', m !== 'window'); };
+
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = (b) => { if (!b) return '0 B'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; const i = Math.min(4, Math.floor(Math.log(b) / Math.log(1024))); return (b / 1024 ** i).toFixed(i >= 3 ? 1 : 0) + ' ' + u[i]; };
+const ago = (iso) => { if (!iso) return 'unknown'; const d = (Date.now() - new Date(iso)) / 864e5; if (d < 1) return 'today'; if (d < 2) return 'yesterday'; if (d < 30) return Math.floor(d) + ' days ago'; if (d < 365) return Math.floor(d / 30) + ' months ago'; return (d / 365).toFixed(1).replace('.0', '') + ' years ago'; };
+
+const svg = (d, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${d}</svg>`;
+const I = {
+  reveal: svg('<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>'),
+  trash: svg('<path d="M4 7h16"/><path d="M9 7V4.5h6V7"/><path d="M6 7l1 13h10l1-13"/>'),
+  refresh: svg('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>'),
+  folder: svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>', 'folder'),
+  file: svg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>'),
+  link: svg('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
+  up: svg('<path d="M12 19V5"/><path d="m6 11 6-6 6 6"/>'),
+  info: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><path d="M12 8h.01"/>'),
+};
+
+async function api(path, body) {
+  const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: { 'X-Token': TOKEN, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 5000); }
+
+function confirmBox(title, html, yes = 'Clear') {
+  const d = $('#confirm'); $('#cf-title').textContent = title; $('#cf-body').innerHTML = html; $('#cf-yes').textContent = yes;
+  d.showModal();
+  return new Promise((res) => {
+    const done = (v) => { d.close(); $('#cf-yes').onclick = $('#cf-no').onclick = null; res(v); };
+    $('#cf-yes').onclick = () => done(true); $('#cf-no').onclick = () => done(false); d.oncancel = () => done(false);
+  });
+}
+
+// ---------- state ----------
+const state = { disk: null, clean: null, projects: null, large: null, library: null, selected: new Map(), done: new Set() };
+
+function reclaimable() {
+  let n = 0;
+  for (const it of state.clean || []) if (!it.disabled && !state.done.has(it.id) && it.risk === 'safe') n += it.size;
+  for (const it of state.projects?.items || []) if (!state.done.has(it.id) && it.risk === 'safe') n += it.size;
+  return n;
+}
+
+function renderDisk() {
+  const d = state.disk; if (!d) return;
+  const rc = Math.min(reclaimable(), d.used);
+  const pct = (x) => (x / d.total * 100).toFixed(2) + '%';
+  const loading = !state.clean || !state.projects;
+  $('#disk').innerHTML = `
+    <div class="disk-top">
+      <div class="disk-free">${fmt(d.free)}<small>available of ${fmt(d.total)}</small></div>
+      <div class="reclaim-pill">${loading ? '<span class="spin"></span>Scanning…' : `<b>${fmt(rc)}</b>safe to clear`}</div>
+    </div>
+    <div class="meter"><i class="used" style="width:${pct(d.used - rc)}"></i><i class="reclaim" style="width:${pct(rc)}"></i></div>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--accent)"></span>Used <b>${fmt(d.used)}</b> · ${Math.round(d.used / d.total * 100)}%</span>
+      <span><span class="dot" style="background:var(--safe)"></span>Clearable <b>${fmt(rc)}</b></span>
+      <span><span class="dot" style="background:var(--fill-hi)"></span>Free <b>${fmt(d.free)}</b></span>
+    </div>`;
+  if (IN_APP) native('refresh');
+}
+
+function updateDock() {
+  let n = 0, s = 0; for (const it of state.selected.values()) { n++; s += it.size; }
+  $('#dock').classList.toggle('show', n > 0);
+  $('#dock-n').textContent = n; $('#dock-size').textContent = fmt(s);
+}
+
+function sizeCell(size, max) {
+  return `<div class="sizecol"><div class="size">${fmt(size)}</div><div class="sbar"><i style="width:${max ? Math.max(1, size / max * 100) : 0}%"></i></div></div>`;
+}
+
+// One list row. Clicking the text of an expandable (x) row shows the full note and path.
+function row({ id, cls = '', lead, name, note = '', path = '', size, max, actions = '', x = true }) {
+  return `<div class="row ${x ? 'x' : ''} ${cls}" ${id ? `data-id="${esc(id)}"` : ''}>
+    <div class="lead">${lead}</div>
+    <div class="main"><div class="name">${name}</div>${note ? `<div class="note">${note}</div>` : ''}${path ? `<div class="path">${path}</div>` : ''}</div>
+    <div class="side">${size != null ? sizeCell(size, max) : ''}${actions ? `<div class="actions">${actions}</div>` : ''}</div>
+  </div>`;
+}
+const check = (it, done) => `<input type="checkbox" ${done ? 'disabled' : ''} ${state.selected.has(it.id) ? 'checked' : ''}>`;
+const revealBtn = (p) => `<button class="btn sm icon" title="Show in Finder" data-reveal="${esc(p)}">${I.reveal}</button>`;
+const clearBtn = (risk) => `<button class="btn sm ${risk === 'safe' ? '' : 'danger'}" data-act="clear">Clear</button>`;
+const loadingHtml = (msg) => `<div class="loading"><span class="spin"></span>${msg}</div>`;
+
+const riskLabel = { safe: 'Safe', caution: 'Check first', danger: 'Risky', info: 'Info' };
+
+// ---------- clean up tab ----------
+function renderClean() {
+  const el = $('#tab-clean');
+  if (!state.clean) { el.innerHTML = loadingHtml('Measuring caches… (first run can take a minute)'); return; }
+  const items = state.clean;
+  $('#c-clean').textContent = items.length ? fmt(items.filter((i) => !state.done.has(i.id) && !i.disabled).reduce((a, b) => a + b.size, 0)) : '';
+  if (!items.length) { el.innerHTML = '<div class="empty">Nothing to clear here. Nice.</div>'; return; }
+  const max = Math.max(...items.map((i) => i.size));
+  const groups = [...new Set(items.map((i) => i.group))];
+  el.innerHTML = `
+    <div class="toolbar"><span class="hint grow" title="Safe items only hold data that's rebuilt or re-downloaded automatically. Click a row for details."><span class="badge safe" style="margin:0">Safe</span> = rebuilt automatically · click a row for details</span>
+      <button class="btn" id="sel-safe">Select All Safe</button><button class="btn icon" id="rescan-clean" title="Rescan">${I.refresh}</button></div>
+    ${groups.map((g) => {
+      const list = items.filter((i) => i.group === g);
+      return `<div class="card glass"><h3><span>${esc(g)}</span><span>${list.every((i) => i.disabled) ? '' : fmt(list.reduce((a, b) => a + b.size, 0))}</span></h3>
+      ${list.map((it) => {
+        const done = state.done.has(it.id);
+        return row({ id: it.id, cls: done ? 'done' : '',
+          lead: it.disabled ? I.info : check(it, done),
+          name: `${esc(it.name)}<span class="badge ${it.risk}">${riskLabel[it.risk]}</span>`,
+          note: esc(it.note), path: it.paths.map(esc).join('<br>'),
+          size: it.disabled ? null : it.size, max,
+          actions: it.disabled ? '' : done ? '<span class="note">Cleared</span>' : clearBtn(it.risk) });
+      }).join('')}</div>`;
+    }).join('')}`;
+  wireRows(el, items);
+  $('#sel-safe', el).onclick = () => { for (const it of items) if (it.risk === 'safe' && !it.disabled && !state.done.has(it.id)) state.selected.set(it.id, it); renderClean(); updateDock(); };
+  $('#rescan-clean', el).onclick = () => loadClean();
+}
+
+function wireRows(el, items) {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  el.querySelectorAll('.row[data-id]').forEach((row) => {
+    const it = byId.get(row.dataset.id);
+    const cb = $('input[type=checkbox]', row);
+    if (cb) cb.onchange = () => { cb.checked ? state.selected.set(it.id, it) : state.selected.delete(it.id); updateDock(); };
+    const b = $('[data-act=clear]', row);
+    if (b) b.onclick = () => clearItems([it]);
+  });
+  el.querySelectorAll('[data-reveal]').forEach((b) => b.onclick = () => api('/api/reveal', { path: b.dataset.reveal }));
+}
+
+async function clearItems(list) {
+  const risky = list.filter((i) => i.risk !== 'safe');
+  const total = list.reduce((a, b) => a + b.size, 0);
+  const ok = await confirmBox(list.length === 1 ? `Clear ${list[0].name || list[0].path}?` : `Clear ${list.length} items?`,
+    `<p>This frees about <b>${fmt(total)}</b>. Files are deleted, not moved to the Trash.</p>
+     <ul>${list.map((i) => `<li><b>${esc(i.name || i.kind)}</b>${i.projectName ? ' in ' + esc(i.projectName) : ''} · ${fmt(i.size)}<br><span class="note">${esc(i.note)}</span></li>`).join('')}</ul>
+     ${risky.length ? `<p style="color:var(--caution)"><b>${risky.length}</b> of these are marked "Check first". Read the notes above.</p>` : ''}`);
+  if (!ok) return;
+  toast(`Clearing ${list.length} item(s)…`);
+  try {
+    const r = await api('/api/clear', { ids: list.map((i) => i.id) });
+    const failed = r.results.filter((x) => !x.ok);
+    for (const x of r.results) if (x.ok) { state.done.add(x.id); state.selected.delete(x.id); }
+    state.disk = r.disk;
+    const notes = r.results.filter((x) => x.note).map((x) => x.note);
+    toast(`Freed ${fmt(r.freed)}.` + (failed.length ? ` ${failed.length} failed: ${failed[0].error}` : '') + (notes.length ? ' ' + notes[0] : ''));
+  } catch (e) { toast('Error: ' + e.message); }
+  renderAll();
+}
+
+// ---------- projects tab ----------
+let projIdleOnly = false;
+function renderProjects() {
+  const el = $('#tab-projects');
+  if (!state.projects) { el.innerHTML = loadingHtml('Looking for node_modules, .next, build output…'); return; }
+  const all = state.projects.items;
+  const items = projIdleOnly ? all.filter((i) => (Date.now() - new Date(i.last)) / 864e5 > 90) : all;
+  $('#c-projects').textContent = all.length ? fmt(all.filter((i) => !state.done.has(i.id)).reduce((a, b) => a + b.size, 0)) : '';
+  const max = Math.max(0, ...items.map((i) => i.size));
+  const roots = state.projects.roots.map(esc).join(', ') || 'no project folders found';
+  el.innerHTML = `
+    <div class="toolbar">
+      <label class="chk grow"><input type="checkbox" id="idle" ${projIdleOnly ? 'checked' : ''}> Idle 90+ days only</label>
+      <button class="btn" id="sel-idle">Select Safe in Idle</button><button class="btn icon" id="rescan-proj" title="Rescan">${I.refresh}</button></div>
+    <div class="hint" title="${roots}">Build folders over 20 MB in ${roots}</div>
+    <div class="card glass">${items.length ? items.map((it) => {
+      const done = state.done.has(it.id);
+      return row({ id: it.id, cls: done ? 'done' : '', lead: check(it, done),
+        name: `${esc(it.projectName)} <span class="note" style="display:inline">/ ${esc(it.kind)}</span><span class="badge ${it.risk}">${riskLabel[it.risk]}</span>`,
+        note: `${ago(it.last)} · ${esc(it.note)}`, path: esc(it.path), size: it.size, max,
+        actions: done ? '<span class="note">Cleared</span>' : revealBtn(it.path) + clearBtn(it.risk) });
+    }).join('') : '<div class="empty">No large build folders found.</div>'}</div>`;
+  wireRows(el, items);
+  $('#idle', el).onchange = (e) => { projIdleOnly = e.target.checked; renderProjects(); };
+  $('#sel-idle', el).onclick = () => { for (const it of all) if (it.risk === 'safe' && !state.done.has(it.id) && (Date.now() - new Date(it.last)) / 864e5 > 90) state.selected.set(it.id, it); renderProjects(); updateDock(); };
+  $('#rescan-proj', el).onclick = () => loadProjects();
+}
+
+// ---------- library scan tab ----------
+function renderLibrary() {
+  const el = $('#tab-library');
+  if (!state.library) { el.innerHTML = loadingHtml('Scanning ~/Library… (this can take a minute)'); return; }
+  const { total, areas, items } = state.library;
+  const live = items.filter((i) => !state.done.has(i.id));
+  $('#c-library').textContent = live.length ? fmt(live.filter((i) => i.canClear && i.risk === 'safe' && !i.overlap).reduce((a, b) => a + b.size, 0)) : '';
+  const amax = Math.max(0, ...areas.map((a) => a.size));
+  const max = Math.max(0, ...items.map((i) => i.size));
+  const groups = [...new Set(items.map((i) => i.area))];
+  el.innerHTML = `
+    <div class="toolbar"><span class="hint grow" title="Folders over 50 MB in ~/Library, recognised and rated. Only rows with Clear can be cleared here.">Folders over 50 MB in ~/Library, rated by safety</span><button class="btn icon" id="rescan-library" title="Rescan">${I.refresh}</button></div>
+    <div class="card glass"><h3><span>~/Library by folder</span><span>${fmt(total)}</span></h3>
+      ${areas.map((a) => row({ lead: I.folder, name: esc(a.name), size: a.size, max: amax, x: false })).join('')}</div>
+    ${groups.map((g) => {
+      const list = items.filter((i) => i.area === g);
+      return `<div class="card glass"><h3><span>${esc(g)}</span><span>${fmt(list.reduce((a, b) => a + b.size, 0))}</span></h3>
+      ${list.map((it) => {
+        const done = state.done.has(it.id);
+        return row({ id: it.id, cls: done ? 'done' : '',
+          lead: it.canClear ? check(it, done) : I.info,
+          name: `${esc(it.name)}<span class="badge ${it.risk}">${riskLabel[it.risk]}</span>${it.running ? '<span class="badge caution">Running</span>' : ''}`,
+          note: esc(it.note) + (it.overlap ? ` Also covered by "${esc(it.overlap)}" in Clean.` : ''),
+          path: it.paths.map(esc).join('<br>'), size: it.size, max,
+          actions: revealBtn(it.paths[0]) + (done ? '<span class="note">Cleared</span>' : it.canClear ? clearBtn(it.risk) : '') });
+      }).join('')}</div>`;
+    }).join('')}`;
+  wireRows(el, items);
+  $('#rescan-library', el).onclick = () => loadLibrary();
+}
+
+// ---------- explore tab ----------
+let explorePath = '~';
+async function renderExplore(fresh = false) {
+  const el = $('#tab-explore');
+  el.innerHTML = loadingHtml(`Measuring ${esc(explorePath)}…`);
+  let data;
+  try { data = await api('/api/explore?path=' + encodeURIComponent(explorePath) + (fresh ? '&fresh=1' : '')); }
+  catch (e) { el.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+  const parts = data.path.split('/').filter(Boolean);
+  const crumbs = ['<a data-p="/">/</a>'].concat(parts.map((p, i) => `<a data-p="${esc('/' + parts.slice(0, i + 1).join('/'))}">${esc(p)}</a>`)).join('<span>/</span>');
+  const total = data.children.reduce((a, b) => a + b.size, 0);
+  const max = Math.max(0, ...data.children.map((c) => c.size));
+  el.innerHTML = `
+    <div class="toolbar">
+      <div class="chips grow"><button class="btn sm" data-p="~">Home</button><button class="btn sm" data-p="~/Library">Library</button>
+      <button class="btn sm" data-p="~/Library/Application Support">App Support</button><button class="btn sm" data-p="/Applications">Applications</button></div>
+      <button class="btn icon" id="rescan-ex" title="Rescan this folder">${I.refresh}</button></div>
+    <div class="card glass"><h3><span class="crumbs">${crumbs}</span><span>${fmt(total)}</span></h3>
+      ${data.parent ? `<div class="row dir"><div class="lead">${I.up}</div><div class="main"><div class="name" data-p="${esc(data.parent)}">Enclosing folder</div></div><div></div></div>` : ''}
+      ${data.children.length ? data.children.map((c) => row({ cls: c.type === 'dir' ? 'dir' : '', x: false,
+          lead: c.type === 'dir' ? I.folder : c.type === 'link' ? I.link : I.file,
+          name: `<span ${c.type === 'dir' ? `data-p="${esc(c.path)}"` : ''} class="name" style="display:inline">${esc(c.name)}</span>`,
+          note: total ? Math.round(c.size / total * 100) + '% of this folder' : '', size: c.size, max,
+          actions: revealBtn(c.path) + (c.trashable ? `<button class="btn sm icon danger" title="Move to Trash" data-trash="${esc(c.path)}" data-size="${c.size}">${I.trash}</button>` : '') })).join('')
+        : '<div class="empty">Empty folder.</div>'}
+    </div>
+    <p class="foot-note">Move to Trash works inside your home folder (not on Documents, Library etc. themselves). You can restore from the Trash.</p>`;
+  el.querySelectorAll('[data-p]').forEach((a) => a.onclick = () => { explorePath = a.dataset.p; renderExplore(); });
+  el.querySelectorAll('[data-reveal]').forEach((b) => b.onclick = () => api('/api/reveal', { path: b.dataset.reveal }));
+  el.querySelectorAll('[data-trash]').forEach((b) => b.onclick = () => trash(b.dataset.trash, +b.dataset.size, () => renderExplore(true)));
+  $('#rescan-ex', el).onclick = () => renderExplore(true);
+}
+
+async function trash(p, size, after) {
+  const ok = await confirmBox('Move to Trash?', `<p><code>${esc(p)}</code></p><p>About <b>${fmt(size)}</b>. Space comes back once you empty the Trash. You can restore it from the Trash until then.</p>`, 'Move to Trash');
+  if (!ok) return;
+  try { const r = await api('/api/trash', { path: p }); state.disk = r.disk; renderDisk(); toast('Moved to Trash. Empty the Trash to get the space back.'); after?.(); }
+  catch (e) { toast('Error: ' + e.message); }
+}
+
+// ---------- large files tab ----------
+function renderLarge() {
+  const el = $('#tab-large');
+  if (!state.large) { el.innerHTML = loadingHtml('Searching your home folder for files over 500 MB…'); return; }
+  $('#c-large').textContent = state.large.length || '';
+  const max = Math.max(0, ...state.large.map((f) => f.size));
+  el.innerHTML = `<div class="toolbar"><span class="hint grow" title="Library, node_modules and .git are excluded.">Files over 500 MB in your home folder</span><button class="btn icon" id="rescan-large" title="Rescan">${I.refresh}</button></div>
+    <div class="card glass">${state.large.length ? state.large.map((f) => row({ lead: I.file,
+        name: esc(f.path.split('/').pop()), note: `Modified ${ago(f.modified)} · opened ${ago(f.accessed)}`, path: esc(f.path), size: f.size, max,
+        actions: revealBtn(f.path) + `<button class="btn sm icon danger" title="Move to Trash" data-trash="${esc(f.path)}" data-size="${f.size}">${I.trash}</button>` })).join('')
+      : '<div class="empty">No files over 500 MB.</div>'}</div>`;
+  el.querySelectorAll('[data-reveal]').forEach((b) => b.onclick = () => api('/api/reveal', { path: b.dataset.reveal }));
+  el.querySelectorAll('[data-trash]').forEach((b) => b.onclick = () => trash(b.dataset.trash, +b.dataset.size, () => { state.large = state.large.filter((f) => f.path !== b.dataset.trash); renderLarge(); }));
+  $('#rescan-large', el).onclick = () => loadLarge();
+}
+
+// ================= developer view =================
+Object.assign(I, {
+  globe: svg('<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.5 2.6 3.5 5.4 3.5 8.5s-1 5.9-3.5 8.5c-2.5-2.6-3.5-5.4-3.5-8.5s1-5.9 3.5-8.5z"/>'),
+  code: svg('<path d="M8 7 3 12l5 5"/><path d="m16 7 5 5-5 5"/>'),
+  term: svg('<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="m7 9.5 3 2.5-3 2.5"/><path d="M12.5 15H17"/>'),
+  plug: svg('<path d="M9 3v5"/><path d="M15 3v5"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v4"/>'),
+  branch: svg('<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 8.2v7.6"/><path d="M18 10.2c0 4-6 3-11 6"/>'),
+});
+const dev = { ports: null, projects: null, procs: [], git: null, tab: 'ports', serverQuery: '', gitQuery: '', open: new Set() };
+const devOpen = (kind, target, app) => api('/api/dev/open', { kind, target, app }).catch((e) => toast(e.message));
+const tabCount = (id, v) => { $(id).textContent = v || ''; };
+
+function renderDevStats() {
+  const devPorts = dev.ports ? dev.ports.filter((p) => p.group === 'dev').length : null;
+  const running = dev.procs.filter((p) => p.status === 'running').length;
+  const attention = dev.git ? dev.git.items.filter((r) => r.attention).length : null;
+  $('#st-ports').textContent = devPorts ?? '–';
+  $('#st-running').textContent = running;
+  $('#st-git').textContent = attention ?? '–';
+  $('#st-running').parentElement.classList.toggle('ok', running > 0);
+  $('#st-git').parentElement.classList.toggle('warn', attention > 0);
+  tabCount('#c-ports', devPorts); tabCount('#c-servers', running); tabCount('#c-git', attention);
+}
+
+// ---------- ports ----------
+function renderPorts() {
+  const el = $('#dtab-ports');
+  if (!dev.ports) { el.innerHTML = loadingHtml('Looking for listening ports…'); return; }
+  const groups = [['dev', 'Your projects'], ['other', 'Apps & system']];
+  const keepOpen = new Set([...el.querySelectorAll('.row.open[data-pid]')].map((r) => r.dataset.pid));
+  el.innerHTML = `<div class="toolbar"><span class="hint grow">Every process accepting connections on this Mac. Refreshes on its own.</span>
+      <button class="btn icon" id="rescan-ports" title="Refresh">${I.refresh}</button></div>
+    ${groups.map(([g, title]) => {
+      const list = dev.ports.filter((p) => p.group === g);
+      if (!list.length && g === 'other') return '';
+      return `<div class="card glass"><h3><span>${title}</span><span>${list.length}</span></h3>${list.length ? list.map((p) => `
+        <div class="row x ${keepOpen.has(String(p.pid)) ? 'open' : ''}" data-pid="${p.pid}">
+          <div class="lead"><span class="sdot ${p.managed ? 'on' : g === 'dev' ? 'wait' : ''}" title="${p.managed ? 'Started from Storage Cleaner' : ''}"></span></div>
+          <div class="main"><div class="name"><span class="mono" style="font-weight:600">:${p.ports.join(', :')}</span> <span class="sub">${esc(p.project || p.command)}</span>${p.self ? '<span class="badge info">This app</span>' : ''}${p.local ? '' : '<span class="badge caution" title="Reachable from other devices on your network">Network</span>'}</div>
+            <div class="note">${p.project ? esc(p.command) + ' · ' : ''}pid ${p.pid} · ${fmt(p.rss)} · up ${esc(p.uptime)}</div>
+            <div class="path">${esc(p.cwd && p.cwd !== '/' ? p.cwd + '\n' : '')}${esc(p.cmdline)}</div></div>
+          <div class="side"><div class="actions">
+            ${g === 'dev' ? `<button class="btn sm icon" title="Open http://localhost:${p.ports[0]}" data-url="http://localhost:${p.ports[0]}">${I.globe}</button>` : ''}
+            ${p.self ? '' : `<button class="btn sm ${g === 'dev' ? 'danger' : ''}" data-stop="${p.pid}">${g === 'dev' ? 'Stop' : 'Quit'}</button>`}</div></div>
+        </div>`).join('') : '<div class="empty">No dev servers listening right now.</div>'}</div>`;
+    }).join('')}`;
+  el.querySelectorAll('[data-url]').forEach((b) => b.onclick = () => devOpen('url', b.dataset.url));
+  el.querySelectorAll('[data-stop]').forEach((b) => b.onclick = () => stopPort(dev.ports.find((p) => p.pid === +b.dataset.stop)));
+  $('#rescan-ports', el).onclick = () => loadPorts();
+}
+
+async function stopPort(p) {
+  if (!p) return;
+  const ok = await confirmBox(`Stop ${p.project || p.command}?`, `<p>Sends a quit signal to <b>${esc(p.command)}</b> (pid ${p.pid}) listening on <span class="mono">:${p.ports.join(', :')}</span>.</p>${p.group === 'other' ? '<p style="color:var(--caution)">This is an app or system process, not one of your projects. It may restart on its own or lose unsaved work.</p>' : ''}`, 'Stop');
+  if (!ok) return;
+  try {
+    let r = await api('/api/dev/ports/stop', { pid: p.pid });
+    if (r.stillRunning && await confirmBox('Still running', `<p><b>${esc(p.command)}</b> didn't quit. Force quit it? Unsaved work in it will be lost.</p>`, 'Force Quit')) r = await api('/api/dev/ports/stop', { pid: p.pid, force: true });
+    toast(r.stillRunning ? 'Process is still running.' : `Stopped ${p.command}. Port${p.ports.length > 1 ? 's' : ''} :${p.ports.join(', :')} free.`);
+  } catch (e) { toast('Error: ' + e.message); }
+  loadPorts();
+}
+
+// ---------- dev servers ----------
+const procFor = (projectId) => { const l = dev.procs.filter((p) => p.project === projectId); return l.find((p) => p.status === 'running') || l[l.length - 1]; };
+const scriptChoice = new Map();
+
+function serverRowState(proj) {
+  const pr = procFor(proj.id);
+  const running = pr?.status === 'running';
+  const script = running ? pr.script : scriptChoice.get(proj.id) || Object.keys(proj.scripts)[0];
+  const dot = running ? (pr.url ? 'on' : 'wait') : pr && pr.code !== 0 && pr.code !== 'SIGTERM' && pr.code !== null ? 'err' : '';
+  const names = Object.keys(proj.scripts);
+  const side = `${running ? `<span class="mono sub">${esc(pr.script)}</span>` : names.length > 1 ? `<select class="sel" data-script>${names.map((n) => `<option ${n === script ? 'selected' : ''}>${n}</option>`).join('')}</select>` : `<span class="mono sub">${esc(script)}</span>`}
+    ${pr?.url && running ? `<button class="btn sm icon" title="Open ${esc(pr.url)}" data-url="${esc(pr.url)}">${I.globe}</button>` : ''}
+    ${running ? '<button class="btn sm danger" data-act="stop">Stop</button>' : '<button class="btn sm primary" data-act="start">Start</button>'}`;
+  return { pr, running, script, dot, side, sig: [pr?.id, pr?.status, pr?.url, pr?.code, script].join('|') };
+}
+
+function renderServers() {
+  const el = $('#dtab-servers');
+  if (!dev.projects) { el.innerHTML = loadingHtml('Finding projects with dev scripts…'); return; }
+  const q = dev.serverQuery.toLowerCase();
+  const items = dev.projects.items.filter((p) => !q || (p.name + ' ' + p.sub).toLowerCase().includes(q));
+  const isRunning = (p) => procFor(p.id)?.status === 'running';
+  dev.shownRunning = runningKey();
+  const rowHtml = (p) => `<div class="row x ${dev.open.has(p.id) ? 'open' : ''}" data-proj="${p.id}">
+      <div class="lead"><span class="sdot"></span></div>
+      <div class="main"><div class="name">${esc(p.name)}${p.sub ? ` <span class="sub">› ${esc(p.sub)}</span>` : ''}</div><div class="note" data-cmd></div></div>
+      <div class="side"><div class="actions" data-side></div></div>
+      <div class="more"><pre class="log" data-log hidden></pre><div class="btns">
+        ${dev.projects.editor ? `<button class="btn sm" data-open="editor">${I.code} ${esc(dev.projects.editor)}</button>` : ''}
+        <button class="btn sm" data-open="terminal">${I.term} ${esc(dev.projects.terminal)}</button>
+        <button class="btn sm" data-open="finder">${I.folder} Finder</button>
+        <span class="note" style="align-self:center">${esc(p.path)}</span></div></div>
+    </div>`;
+  const running = items.filter(isRunning), rest = items.filter((p) => !isRunning(p));
+  el.innerHTML = `<div class="toolbar"><input class="search" id="srv-q" type="search" placeholder="Search ${dev.projects.items.length} projects" value="${esc(dev.serverQuery)}">
+      <button class="btn icon" id="rescan-srv" title="Rescan projects">${I.refresh}</button></div>
+    ${running.length ? `<div class="card glass"><h3><span>Running</span><span>${running.length}</span></h3>${running.map(rowHtml).join('')}</div>` : ''}
+    ${rest.length || !running.length ? `<div class="card glass"><h3><span>Projects</span><span>${rest.length}</span></h3>${rest.length ? rest.map(rowHtml).join('') : `<div class="empty">${q ? 'No matches.' : 'No projects with dev/start scripts found.'}</div>`}</div>` : ''}`;
+  const qi = $('#srv-q', el);
+  qi.oninput = () => { dev.serverQuery = qi.value; renderServers(); const n = $('#srv-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); };
+  $('#rescan-srv', el).onclick = () => loadProjects2();
+  patchServers(true);
+}
+
+const runningKey = () => dev.procs.filter((p) => p.status === 'running').map((p) => p.project).sort().join(',');
+
+// Updates rows in place every poll so open logs, dropdowns and focus survive.
+function patchServers(force = false) {
+  if (!dev.projects) return;
+  const byId = new Map(dev.projects.items.map((p) => [p.id, p]));
+  // A server started or stopped: rebuild so it moves between the Running and Projects lists.
+  if (!force && runningKey() !== dev.shownRunning) { renderServers(); return; }
+  document.querySelectorAll('#dtab-servers .row[data-proj]').forEach((row) => {
+    const proj = byId.get(row.dataset.proj);
+    const st = serverRowState(proj);
+    if (force || row._sig !== st.sig) {
+      row._sig = st.sig;
+      $('.sdot', row).className = 'sdot ' + st.dot;
+      $('[data-cmd]', row).textContent = `${proj.pm} · ${proj.scripts[st.script]}`;
+      const side = $('[data-side]', row);
+      side.innerHTML = st.side;
+      const sel = $('[data-script]', side);
+      if (sel) sel.onchange = () => { scriptChoice.set(proj.id, sel.value); patchServers(true); };
+      const go = $('[data-act]', side);
+      go.onclick = () => go.dataset.act === 'start' ? startServer(proj, st.script) : stopServer(st.pr);
+      side.querySelectorAll('[data-url]').forEach((b) => b.onclick = () => devOpen('url', b.dataset.url));
+      row.querySelectorAll('[data-open]').forEach((b) => b.onclick = () => devOpen('dir', proj.path, b.dataset.open));
+    }
+    const log = $('[data-log]', row);
+    const lines = st.pr ? st.pr.log : [];
+    log.hidden = !lines.length;
+    if (log._n !== lines.length || log._id !== st.pr?.id) {
+      const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
+      log.textContent = lines.join('\n'); log._n = lines.length; log._id = st.pr?.id;
+      if (atBottom || force) log.scrollTop = log.scrollHeight;
+    }
+  });
+}
+
+async function startServer(proj, script) {
+  dev.open.add(proj.id);
+  try { dev.procs = dev.procs.filter((p) => p.project !== proj.id || p.status === 'running').concat(await api('/api/dev/start', { project: proj.id, script })); toast(`Starting ${proj.name}${proj.sub ? ' › ' + proj.sub : ''}…`); }
+  catch (e) { toast('Error: ' + e.message); }
+  renderServers(); renderDevStats(); fastPoll();
+}
+async function stopServer(pr) {
+  if (!pr) return;
+  try { await api('/api/dev/stop', { id: pr.id }); } catch (e) { toast('Error: ' + e.message); }
+  fastPoll();
+}
+
+// ---------- git ----------
+function gitBadges(r) {
+  const b = [];
+  if (r.conflicts) b.push(`<span class="badge danger">${r.conflicts} conflict${r.conflicts > 1 ? 's' : ''}</span>`);
+  if (r.changed) b.push(`<span class="badge caution">${r.changed} changed</span>`);
+  if (r.staged) b.push(`<span class="badge accent">${r.staged} staged</span>`);
+  if (r.untracked) b.push(`<span class="badge info">${r.untracked} new</span>`);
+  if (r.ahead) b.push(`<span class="badge accent">↑${r.ahead} to push</span>`);
+  if (r.behind) b.push(`<span class="badge caution">↓${r.behind} to pull</span>`);
+  if (!r.upstream) b.push(r.branch === '(detached)' ? '<span class="badge info">detached</span>' : '<span class="badge info">not on remote</span>');
+  if (r.stashes) b.push(`<span class="badge info">${r.stashes} stash${r.stashes > 1 ? 'es' : ''}</span>`);
+  if (!b.length) b.push('<span class="badge safe">clean</span>');
+  return b.join('');
+}
+
+function renderGit() {
+  const el = $('#dtab-git');
+  if (!dev.git) { el.innerHTML = loadingHtml('Checking your repositories…'); return; }
+  const q = dev.gitQuery.toLowerCase();
+  const items = dev.git.items.filter((r) => !q || (r.name + ' ' + r.branch).toLowerCase().includes(q));
+  const rowHtml = (r) => `<div class="row x" data-repo="${r.id}">
+      <div class="lead" style="color:${r.attention ? 'var(--caution)' : 'var(--safe)'}">${I.branch}</div>
+      <div class="main"><div class="name">${esc(r.name)} <span class="sub mono">${esc(r.branch)}</span></div>
+        <div class="chipline">${gitBadges(r)}</div>
+        <div class="path">${esc(r.path)}\n${r.last ? `Last commit ${ago(r.last)}: ${esc(r.subject)}` : 'No commits yet'}${r.upstream ? `\nTracks ${esc(r.upstream)}` : ''}</div></div>
+      <div class="side"><div class="actions">
+        ${dev.git.editor ? `<button class="btn sm icon" title="Open in ${esc(dev.git.editor)}" data-open="editor">${I.code}</button>` : ''}
+        <button class="btn sm icon" title="Open in ${esc(dev.git.terminal)}" data-open="terminal">${I.term}</button>
+        <button class="btn sm icon" title="Show in Finder" data-open="finder">${I.folder}</button></div></div>
+    </div>`;
+  const need = items.filter((r) => r.attention), clean = items.filter((r) => !r.attention);
+  el.innerHTML = `<div class="toolbar"><input class="search" id="git-q" type="search" placeholder="Search ${dev.git.items.length} repos" value="${esc(dev.gitQuery)}">
+      <button class="btn" id="git-fetch" title="Download the latest from remotes (doesn't change your files)">Fetch All</button>
+      <button class="btn icon" id="rescan-git" title="Recheck">${I.refresh}</button></div>
+    ${need.length ? `<div class="card glass"><h3><span>Needs attention</span><span>${need.length}</span></h3>${need.map(rowHtml).join('')}</div>` : ''}
+    <div class="card glass"><h3><span>Up to date</span><span>${clean.length}</span></h3>${clean.length ? clean.map(rowHtml).join('') : '<div class="empty">Nothing here.</div>'}</div>
+    <p class="foot-note">Ahead/behind counts are as of the last fetch. Fetch All updates them without touching your files.</p>`;
+  el.querySelectorAll('.row[data-repo]').forEach((row) => {
+    const r = dev.git.items.find((x) => x.id === row.dataset.repo);
+    row.querySelectorAll('[data-open]').forEach((b) => b.onclick = () => devOpen('dir', r.path, b.dataset.open));
+  });
+  const qi = $('#git-q', el);
+  qi.oninput = () => { dev.gitQuery = qi.value; renderGit(); const n = $('#git-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); };
+  $('#rescan-git', el).onclick = () => loadGit();
+  $('#git-fetch', el).onclick = async (e) => {
+    e.target.disabled = true; e.target.innerHTML = '<span class="spin"></span>Fetching…';
+    try { const r = await api('/api/dev/git/fetch', {}); dev.git = r; toast(r.failed.length ? `Fetched. Couldn't reach: ${r.failed.join(', ')}` : 'Fetched all repositories.'); }
+    catch (err) { toast('Error: ' + err.message); }
+    renderGit(); renderDevStats();
+  };
+}
+
+// ---------- loading + polling ----------
+async function loadPorts() { try { dev.ports = await api('/api/dev/ports'); } catch (e) { dev.ports = []; toast(e.message); } renderPorts(); renderDevStats(); }
+async function loadProjects2() { dev.projects = null; renderServers(); try { dev.projects = await api('/api/dev/projects'); } catch (e) { dev.projects = { items: [] }; toast(e.message); } renderServers(); }
+async function loadGit() { dev.git = null; renderGit(); try { dev.git = await api('/api/dev/git'); } catch (e) { dev.git = { items: [] }; toast(e.message); } renderGit(); renderDevStats(); }
+async function loadProcs() { try { dev.procs = await api('/api/dev/procs'); } catch { return; } patchServers(); renderDevStats(); }
+
+let devLoaded = false, pollT = null, pollN = 0;
+function devVisible() { return !$('#view-dev').hidden && document.visibilityState === 'visible'; }
+function poll() {
+  clearTimeout(pollT);
+  if (!devVisible()) return;
+  loadProcs();
+  if (++pollN % 3 === 0) loadPorts();
+  pollT = setTimeout(poll, 2000);
+}
+function fastPoll() { setTimeout(loadProcs, 400); setTimeout(loadPorts, 2500); poll(); }
+document.addEventListener('visibilitychange', poll);
+
+function showDev() {
+  if (!devLoaded) { devLoaded = true; renderPorts(); renderServers(); renderGit(); loadProjects2().then(loadPorts); loadGit(); loadProcs(); }
+  else loadPorts();
+  poll();
+}
+function setDevTab(t) {
+  dev.tab = t;
+  document.querySelectorAll('#dev-tabs button').forEach((x) => x.classList.toggle('on', x.dataset.tab === t));
+  for (const k of ['ports', 'servers', 'git']) $('#dtab-' + k).hidden = k !== t;
+  if (t === 'ports') loadPorts();
+}
+$('#dev-tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) setDevTab(b.dataset.tab); };
+document.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => setDevTab(b.dataset.go));
+
+function setView(m) {
+  document.querySelectorAll('#mode button').forEach((x) => x.classList.toggle('on', x.dataset.mode === m));
+  $('#view-storage').hidden = m !== 'storage';
+  $('#view-dev').hidden = m !== 'dev';
+  $('#dock').style.visibility = m === 'storage' ? '' : 'hidden';
+  try { localStorage.setItem('view', m); } catch {}
+  if (m === 'dev') showDev();
+}
+$('#mode').onclick = (e) => { const b = e.target.closest('button'); if (b) setView(b.dataset.mode); };
+// Remember which servers have their details open across re-renders.
+document.addEventListener('click', (e) => { const r = e.target.closest('.row[data-proj]'); if (r && !e.target.closest('button, input, select, a')) setTimeout(() => r.classList.contains('open') ? dev.open.add(r.dataset.proj) : dev.open.delete(r.dataset.proj)); });
+
+// ---------- loading ----------
+function renderAll() { renderDisk(); renderClean(); renderProjects(); renderLarge(); renderLibrary(); updateDock(); }
+async function loadDisk() { state.disk = await api('/api/disk'); renderDisk(); }
+async function loadClean() { state.clean = null; renderAll(); try { state.clean = await api('/api/cleanables'); } catch (e) { state.clean = []; toast(e.message); } state.done.clear(); renderAll(); }
+async function loadProjects() { state.projects = null; renderAll(); try { state.projects = await api('/api/projects'); } catch (e) { state.projects = { roots: [], items: [] }; toast(e.message); } renderAll(); }
+async function loadLarge() { state.large = null; renderLarge(); try { state.large = await api('/api/large'); } catch (e) { state.large = []; toast(e.message); } renderLarge(); }
+async function loadLibrary() { state.library = null; renderLibrary(); try { state.library = await api('/api/library'); } catch (e) { state.library = { total: 0, areas: [], items: [] }; toast(e.message); } renderLibrary(); }
+function loadEverything() { loadDisk(); loadClean(); loadProjects(); loadLarge(); loadLibrary(); }
+
+let exploredOnce = false;
+$('#tabs').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
+  for (const t of ['clean', 'projects', 'library', 'explore', 'large']) $('#tab-' + t).hidden = t !== b.dataset.tab;
+  if (b.dataset.tab === 'explore' && !exploredOnce) { exploredOnce = true; renderExplore(); }
+};
+// Expand a row to show its full note and path.
+document.addEventListener('click', (e) => {
+  if (e.target.closest('button, input, select, a, pre, [data-p]')) return;
+  const main = e.target.closest('.row.x .main');
+  if (main) main.parentElement.classList.toggle('open');
+});
+$('#dock-none').onclick = () => { state.selected.clear(); renderAll(); };
+$('#dock-go').onclick = () => clearItems([...state.selected.values()]);
+$('#h-rescan').onclick = () => {
+  if (!$('#view-dev').hidden) { loadProjects2().then(loadPorts); loadGit(); return; }
+  loadEverything(); if (exploredOnce) renderExplore(true);
+};
+$('#h-window').onclick = () => native('window');
+$('#h-quit').onclick = () => native('quit');
+
+if (!TOKEN) document.body.innerHTML = '<div class="wrap"><p>Open the link printed in the terminal.</p></div>';
+else {
+  renderAll(); loadEverything();
+  let v = 'storage'; try { v = localStorage.getItem('view') || v; } catch {}
+  setView(v);
+}
+</script>
+</body>
+</html>

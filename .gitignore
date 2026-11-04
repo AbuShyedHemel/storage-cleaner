@@ -1,0 +1,6 @@
+# Build output (recreate with mac-app/build.sh)
+*.app/
+# Local audit log of cleanup actions
+actions.log
+.DS_Store
+node_modules/
