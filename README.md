@@ -13,6 +13,7 @@ Everything runs locally on your Mac. There is no account, telemetry, or network 
 ![Swift](https://img.shields.io/badge/Swift-AppKit-orange)
 ![Node](https://img.shields.io/badge/Node.js-18%2B-green)
 ![Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 ---
 
@@ -32,6 +33,7 @@ Everything runs locally on your Mac. There is no account, telemetry, or network 
 - [API reference](#api-reference)
 - [Troubleshooting](#troubleshooting)
 - [Uninstall](#uninstall)
+- [License](#license)
 
 ---
 
@@ -273,3 +275,9 @@ All endpoints are served on `127.0.0.1` and require the `X-Token` header.
 osascript -e 'quit app "Storage Cleaner"'
 rm -rf "/Applications/Storage Cleaner.app" "$HOME/Library/Logs/Storage Cleaner"
 ```
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE). © 2026 Abu Shyed Hemel.
