@@ -84,7 +84,10 @@ $src = Join-Path $Here 'app.cs'
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $stamp = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($src))).Replace('-', '').Substring(0, 16) + "-$WebView2Version-$IconVersion"
 $StampFile = Join-Path $Bin 'build.txt'
-if ((Test-Path $Exe) -and (Get-Content $StampFile -ErrorAction SilentlyContinue) -eq $stamp) { $Exe; return }
+if ((Test-Path $Exe) -and (Get-Content $StampFile -ErrorAction SilentlyContinue) -eq $stamp) {
+  Set-Content (Join-Path $Bin 'tray.txt') (Join-Path $Here 'tray.ps1')
+  $Exe; return
+}
 
 # ---- WebView2 SDK ----
 $arch = switch ($env:PROCESSOR_ARCHITECTURE) { 'ARM64' { 'arm64' } 'x86' { 'x86' } default { 'x64' } }
@@ -133,4 +136,6 @@ $out = & $csc -nologo -optimize -target:winexe "-out:$tmp" "-win32icon:$Ico" `
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tmp)) { throw "Could not build the app window:`n$($out -join "`n")" }
 try { Move-Item $tmp $Exe -Force } catch { Remove-Item $tmp -Force; throw 'The app window is open; close it and try again.' }
 Set-Content $StampFile $stamp
+# Lets the window start the tray app when it is opened from a shortcut or the taskbar.
+Set-Content (Join-Path $Bin 'tray.txt') (Join-Path $Here 'tray.ps1')
 $Exe

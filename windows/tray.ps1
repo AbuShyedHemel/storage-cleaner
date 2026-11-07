@@ -7,7 +7,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File tray.ps1 [-Open]
 
-param([switch]$Open, [switch]$Handover)
+param([switch]$Open, [switch]$Handover, [switch]$Background)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing, Microsoft.VisualBasic
@@ -120,6 +120,7 @@ $tray.Visible = $true
 
 # ---- server ----
 $script:server = $null
+$script:restarts = 0
 $script:url = $null
 $script:token = $null
 $script:port = 0
@@ -147,7 +148,8 @@ function Start-Server {
   $psi.EnvironmentVariables['APP_PROFILE'] = $Data
   $psi.EnvironmentVariables['LOG_DIR'] = $Data
   $script:server = [System.Diagnostics.Process]::Start($psi)
-  @{ url = $script:url; pid = $PID; tray = $PSCommandPath } | ConvertTo-Json | Set-Content -Encoding UTF8 $SessionFile
+  $started = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString("o")
+  @{ url = $script:url; pid = $PID; started = $started; tray = $PSCommandPath } | ConvertTo-Json | Set-Content -Encoding UTF8 $SessionFile
 }
 
 function Stop-Server {
@@ -212,7 +214,7 @@ function Set-StartWithWindows([bool]$on) {
     $sh = New-Object -ComObject WScript.Shell
     $lnk = $sh.CreateShortcut($StartupLink)
     $lnk.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-    $lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`""
+    $lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Background"
     $lnk.WorkingDirectory = $Here
     $lnk.WindowStyle = 7
     $ico = Join-Path $Data 'app.ico'
@@ -261,6 +263,12 @@ $script:lastText = ''
 function Update-Status {
   if ($script:server -and $script:server.HasExited) {
     if ($script:server.ExitCode -eq 42) { Quit-App; return } # handed over to an elevated copy
+    # Restart a server that stopped unexpectedly (a few times, then give up and show "!").
+    if ($script:restarts -lt 3) {
+      $script:restarts++
+      Start-Server
+      if (Wait-Server) { $script:lastText = ''; return }
+    }
     if ($script:lastText -ne '!') { Set-Icon '!' $Red 'Storage Cleaner: server stopped (right-click > Restart server)'; $script:lastText = '!' }
     return
   }
@@ -294,7 +302,7 @@ if (-not (Wait-Server)) {
 Update-Status
 $timer.Start()
 if ($Open) { Open-Window $script:url }
-else { $tray.ShowBalloonTip(3000, 'Storage Cleaner', 'Running in the tray. Click the icon to open it.', 'Info') }
+elseif (-not $Background) { $tray.ShowBalloonTip(3000, 'Storage Cleaner', 'Running in the tray. Click the icon to open it.', 'Info') }
 
 [System.Windows.Forms.Application]::Run()
 Stop-Server

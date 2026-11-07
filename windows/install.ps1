@@ -44,20 +44,31 @@ New-Item -ItemType Directory -Force $Data | Out-Null
 
 # App icon and native window (downloads the WebView2 SDK once). If this fails,
 # Storage Cleaner still works and opens in an Edge app window instead.
+$exe = $null
 try {
-  $exe = & (Join-Path $Here 'build-window.ps1')
+  $exe = & (Join-Path $Here 'build-window.ps1') | Select-Object -Last 1
   Write-Host "Built $exe"
 } catch {
   Write-Warning "Could not build the app window ($($_.Exception.Message)). Storage Cleaner will open in an Edge window."
 }
 
+# Shortcuts that open the window point straight at StorageCleaner.exe, so
+# Windows brings it to the front and lists it as an app in search. It starts
+# the tray app itself when needed. The sign-in shortcut only starts the tray.
 function New-Link([string]$path, [string]$extra, [string]$hotkey = '') {
   $sh = New-Object -ComObject WScript.Shell
   $lnk = $sh.CreateShortcut($path)
-  $lnk.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-  $lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Tray`" $extra".Trim()
-  $lnk.WorkingDirectory = $Here
-  $lnk.WindowStyle = 7
+  if ($extra -eq '-Open' -and $exe -and (Test-Path $exe)) {
+    $lnk.TargetPath = $exe
+    $lnk.Arguments = ''
+    $lnk.WorkingDirectory = Split-Path $exe
+    $lnk.WindowStyle = 1
+  } else {
+    $lnk.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Tray`" $extra".Trim()
+    $lnk.WorkingDirectory = $Here
+    $lnk.WindowStyle = 7
+  }
   $lnk.IconLocation = $Ico
   $lnk.Description = 'Free memory, clean storage and speed up Windows'
   if ($hotkey) { $lnk.Hotkey = $hotkey }
@@ -65,11 +76,11 @@ function New-Link([string]$path, [string]$extra, [string]$hotkey = '') {
   Write-Host "Created $path$(if ($hotkey) { "  (shortcut key: $hotkey)" })"
 }
 
-# Ctrl+Alt+S opens the app from anywhere. Windows reads shortcut keys from
+# Ctrl+Alt+M opens the app from anywhere. Windows reads shortcut keys from
 # Start menu shortcuts, so only that one carries it.
-New-Link $Links[0] '-Open' 'CTRL+ALT+S'
+New-Link $Links[0] '-Open' 'CTRL+ALT+M'
 if ($Desktop) { New-Link $Links[1] '-Open' }
-if ($StartWithWindows) { New-Link $Links[2] '' }
+if ($StartWithWindows) { New-Link $Links[2] '-Background' }
 
-Write-Host "`nStorage Cleaner is installed. Press Ctrl+Alt+S, open it from the Start menu, or run:"
+Write-Host "`nStorage Cleaner is installed. Press Ctrl+Alt+M, open it from the Start menu, or run:"
 Write-Host "    powershell -ExecutionPolicy Bypass -File `"$Tray`" -Open"

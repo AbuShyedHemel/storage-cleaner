@@ -49,52 +49,136 @@ static class App
         }
 
         string url = args.Length > 0 ? args[0] : null;
-        string profile = args.Length > 1 ? args[1] : Path.Combine(Data, "window");
+        string profile = args.Length > 1 ? args[1] : Path.Combine(Data, "webview");
+        string tray = null;
+        Session session0 = null;
         if (url == null)
         {
-            // Started on its own (pinned to the taskbar): reuse the running tray app, or start it.
-            var session = ReadSession();
-            if (session != null && session.Alive) url = session.Url;
+            // Started from a shortcut, search or the taskbar: use the running tray
+            // app, or start it and wait for its server.
+            var session = session0 = ReadSession();
+            if (session != null && session.Alive && Answers(session.Url)) url = session.Url;
             else
             {
-                if (session != null && session.Tray != null && File.Exists(session.Tray))
+                if (session != null && session.Alive)
                 {
-                    mutex.ReleaseMutex();
-                    Process.Start(new ProcessStartInfo("powershell.exe",
-                        "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + session.Tray + "\" -Open")
-                        { UseShellExecute = false, CreateNoWindow = true });
-                    return 0;
+                    // The tray app is running but its server is not answering: restart it
+                    // (only when we are sure the pid is still our tray).
+                    try
+                    {
+                        if (!session.Verified) throw new UnauthorizedAccessException();
+                        using (var p = Process.GetProcessById(session.Pid)) { p.Kill(); p.WaitForExit(3000); }
+                        Log("restarted unresponsive tray " + session.Pid);
+                    }
+                    catch
+                    {
+                        MessageBox.Show("Storage Cleaner is running as administrator but has stopped responding.\n\n" +
+                            "Right-click the Storage Cleaner icon by the clock and choose Quit, then open Storage Cleaner again.",
+                            "Storage Cleaner", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return 1;
+                    }
                 }
-                MessageBox.Show("Start Storage Cleaner from the Start menu first.", "Storage Cleaner", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return 1;
+                tray = FindTray(session);
+                if (tray == null)
+                {
+                    MessageBox.Show("Storage Cleaner could not find its program folder. Run windows\\install.ps1 again.", "Storage Cleaner", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return 1;
+                }
             }
         }
 
         try { CoreWebView2Environment.GetAvailableBrowserVersionString(); }
         catch (WebView2RuntimeNotFoundException)
         {
-            // No WebView2 runtime (rare on Windows 10/11): use the default browser instead.
-            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+            // No WebView2 runtime (rare on Windows 10/11): the tray opens an Edge or browser window instead.
+            if (url != null) { try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { } }
+            else StartTray(tray, true);
             return 2;
         }
 
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
-        Application.Run(new MainForm(url, profile));
+        Application.ThreadException += (s, e) =>
+        {
+            Log("error: " + e.Exception);
+            MessageBox.Show("Storage Cleaner hit a problem:\n\n" + e.Exception.Message + "\n\nDetails are in " + Path.Combine(Data, "window.log"),
+                "Storage Cleaner", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        };
+        Log("open " + (url != null ? "with running server" : "and start tray " + tray) + (session0 != null ? " (session pid " + session0.Pid + ", alive " + session0.Alive + ")" : ""));
+        Application.Run(new MainForm(url, profile, tray));
         GC.KeepAlive(mutex);
         return 0;
     }
 
-    class Session { public string Url, Tray; public bool Alive; }
+    public class Session { public string Url, Tray; public bool Alive, Verified; public int Pid; }
 
-    static Session ReadSession()
+    // Start-up log (window.log) so problems opening the window can be diagnosed.
+    public static void Log(string msg)
+    {
+        try
+        {
+            var f = Path.Combine(Data, "window.log");
+            if (File.Exists(f) && new FileInfo(f).Length > 200000) File.Delete(f);
+            File.AppendAllText(f, DateTime.Now.ToString("s") + " " + msg + Environment.NewLine);
+        }
+        catch { }
+    }
+
+    public static bool Answers(string url)
+    {
+        if (url == null) return false;
+        try
+        {
+            var req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(url);
+            req.Timeout = 2500;
+            using (var resp = (System.Net.HttpWebResponse)req.GetResponse()) return resp.StatusCode == System.Net.HttpStatusCode.OK;
+        }
+        catch { return false; }
+    }
+
+    // tray.txt is written next to the exe by build-window.ps1.
+    static string FindTray(Session s)
+    {
+        if (s != null && s.Tray != null && File.Exists(s.Tray)) return s.Tray;
+        try
+        {
+            var t = File.ReadAllText(Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "tray.txt")).Trim();
+            if (File.Exists(t)) return t;
+        }
+        catch { }
+        return null;
+    }
+
+    public static Process StartTray(string tray, bool open)
+    {
+        return Process.Start(new ProcessStartInfo("powershell.exe",
+            "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + tray + "\" " + (open ? "-Open" : "-Background"))
+            { UseShellExecute = false, CreateNoWindow = true });
+    }
+
+    public static Session ReadSession()
     {
         try
         {
             var text = File.ReadAllText(Path.Combine(Data, "session.json")).TrimStart('﻿');
             var d = new JavaScriptSerializer().Deserialize<System.Collections.Generic.Dictionary<string, object>>(text);
-            var s = new Session { Url = d["url"] as string, Tray = d.ContainsKey("tray") ? d["tray"] as string : null };
-            try { using (var p = Process.GetProcessById(Convert.ToInt32(d["pid"]))) s.Alive = !p.HasExited && p.ProcessName.Equals("powershell", StringComparison.OrdinalIgnoreCase); }
+            var s = new Session { Url = d["url"] as string, Tray = d.ContainsKey("tray") ? d["tray"] as string : null, Pid = Convert.ToInt32(d["pid"]) };
+            // Process ids get reused, so a pid alone does not prove the tray is still running:
+            // the start time recorded in session.json must match too.
+            try
+            {
+                using (var p = Process.GetProcessById(s.Pid))
+                {
+                    s.Alive = !p.HasExited && p.ProcessName.Equals("powershell", StringComparison.OrdinalIgnoreCase);
+                    object started;
+                    if (s.Alive && d.TryGetValue("started", out started) && started != null)
+                    {
+                        try { s.Verified = Math.Abs((p.StartTime.ToUniversalTime() - DateTime.Parse((string)started, null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime()).TotalSeconds) < 2; }
+                        catch { s.Verified = false; } // elevated tray: start time not readable
+                        if (!s.Verified) { try { var _ = p.StartTime; s.Alive = false; } catch { } } // readable but different: someone else's process
+                    }
+                }
+            }
             catch { s.Alive = false; }
             return s;
         }
@@ -109,14 +193,14 @@ class MainForm : Form
 
     const string StateKey = @"Software\Storage Cleaner\Window";
     readonly WebView2 web = new WebView2();
-    readonly string url, profile, origin;
+    readonly string profile, tray;
+    string url, origin;
 
-    public MainForm(string url, string profile)
+    public MainForm(string url, string profile, string tray)
     {
         this.url = url;
         this.profile = profile;
-        var u = new Uri(url);
-        origin = u.Scheme + "://" + u.Authority;
+        this.tray = tray;
 
         Text = "Storage Cleaner";
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -129,7 +213,44 @@ class MainForm : Form
         web.Dock = DockStyle.Fill;
         Controls.Add(web);
         Load += async (s, e) => await Init();
+        // Come to the front even when started through another process.
+        Shown += (s, e) => { TopMost = true; Activate(); TopMost = false; };
         FormClosing += (s, e) => SaveBounds();
+    }
+
+    // Placeholders are replaced by hand: the CSS braces would break string.Format.
+    const string Splash = "<html><body style=\"margin:0;height:100vh;display:grid;place-items:center;font:15px 'Segoe UI';background:%BG%;color:%FG%\">" +
+        "<div style=\"text-align:center\"><div style=\"width:22px;height:22px;margin:0 auto 14px;border:3px solid rgba(128,128,128,.3);border-top-color:#0a84ff;border-radius:50%;animation:s .8s linear infinite\"></div>%TEXT%</div>" +
+        "<style>@keyframes s{to{transform:rotate(360deg)}}</style></body></html>";
+
+    void ShowMessage(string text)
+    {
+        bool dark = Dark();
+        web.NavigateToString(Splash.Replace("%BG%", dark ? "#202020" : "#f3f3f3").Replace("%FG%", dark ? "#c5c5c5" : "#5d5d5d")
+            .Replace("%TEXT%", System.Net.WebUtility.HtmlEncode(text)));
+    }
+
+    // Starts the tray app (which starts the server) and waits until it answers.
+    async System.Threading.Tasks.Task<string> StartAndWait()
+    {
+        ShowMessage("Starting Storage Cleaner…");
+        int pid = App.StartTray(tray, false).Id;
+        var until = DateTime.Now.AddSeconds(120);
+        while (DateTime.Now < until)
+        {
+            await System.Threading.Tasks.Task.Delay(500);
+            var s = App.ReadSession();
+            if (s == null || !s.Alive || s.Url == null) continue;
+            try
+            {
+                var req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(s.Url);
+                req.Timeout = 2000;
+                using (var resp = (System.Net.HttpWebResponse)await req.GetResponseAsync())
+                    if (resp.StatusCode == System.Net.HttpStatusCode.OK) return s.Url;
+            }
+            catch { }
+        }
+        return null;
     }
 
     static bool Dark()
@@ -173,13 +294,20 @@ class MainForm : Form
         // Only our own local page lives in this window; any other link opens in the default browser.
         core.NavigationStarting += (s, e) =>
         {
-            if (e.Uri.StartsWith(origin + "/", StringComparison.OrdinalIgnoreCase) || e.Uri == origin) return;
+            if (origin == null || e.Uri.StartsWith(origin + "/", StringComparison.OrdinalIgnoreCase) || e.Uri == origin) return;
             e.Cancel = true;
             OpenExternal(e.Uri);
         };
         core.NewWindowRequested += (s, e) => { e.Handled = true; OpenExternal(e.Uri); };
         core.DocumentTitleChanged += (s, e) => { Text = "Storage Cleaner"; };
         core.ProcessFailed += (s, e) => { if (e.ProcessFailedKind == CoreWebView2ProcessFailedKind.BrowserProcessExited) Close(); else web.Reload(); };
+        if (url == null)
+        {
+            url = await StartAndWait();
+            if (url == null) { ShowMessage("Storage Cleaner did not start. Open the log folder from the tray icon, or reinstall."); return; }
+        }
+        var u = new Uri(url);
+        origin = u.Scheme + "://" + u.Authority;
         web.Source = new Uri(url + (url.Contains("?") ? "&" : "?") + "app=1");
     }
 
