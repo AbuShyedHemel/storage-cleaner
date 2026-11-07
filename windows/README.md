@@ -30,7 +30,7 @@ cd storage-cleaner\windows
 powershell -ExecutionPolicy Bypass -File install.ps1 -Desktop
 ```
 
-`install.ps1` adds **Storage Cleaner** to the Start menu (and the desktop with `-Desktop`, and sign-in with `-StartWithWindows`). It doesn't copy anything, so keep the folder where it is.
+`install.ps1` adds **Storage Cleaner** to the Start menu with the keyboard shortcut **Ctrl+Alt+S** (and the desktop with `-Desktop`, and sign-in with `-StartWithWindows`). It doesn't copy anything, so keep the folder where it is.
 
 Or skip installing and double-click **`Storage Cleaner.cmd`**.
 

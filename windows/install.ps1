@@ -78,7 +78,7 @@ function New-AppIcon([string]$out) {
 }
 New-AppIcon $Ico
 
-function New-Link([string]$path, [string]$extra) {
+function New-Link([string]$path, [string]$extra, [string]$hotkey = '') {
   $sh = New-Object -ComObject WScript.Shell
   $lnk = $sh.CreateShortcut($path)
   $lnk.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -87,13 +87,16 @@ function New-Link([string]$path, [string]$extra) {
   $lnk.WindowStyle = 7
   $lnk.IconLocation = $Ico
   $lnk.Description = 'Free memory, clean storage and speed up Windows'
+  if ($hotkey) { $lnk.Hotkey = $hotkey }
   $lnk.Save()
-  Write-Host "Created $path"
+  Write-Host "Created $path$(if ($hotkey) { "  (shortcut key: $hotkey)" })"
 }
 
-New-Link $Links[0] '-Open'
+# Ctrl+Alt+S opens the app from anywhere. Windows reads shortcut keys from
+# Start menu shortcuts, so only that one carries it.
+New-Link $Links[0] '-Open' 'CTRL+ALT+S'
 if ($Desktop) { New-Link $Links[1] '-Open' }
 if ($StartWithWindows) { New-Link $Links[2] '' }
 
-Write-Host "`nStorage Cleaner is installed. Open it from the Start menu, or run:"
+Write-Host "`nStorage Cleaner is installed. Press Ctrl+Alt+S, open it from the Start menu, or run:"
 Write-Host "    powershell -ExecutionPolicy Bypass -File `"$Tray`" -Open"
