@@ -481,13 +481,20 @@ const CRITICAL = new Set(['system', 'registry', 'smss', 'csrss', 'wininit', 'win
 const memRegistry = new Map(); // group id -> pids
 
 async function memory() {
-  const [mem, procs] = await Promise.all([helper('mem'), helper('procs')]);
+  const [mem, procs, edge] = await Promise.all([helper('mem'), helper('procs'), helper('cmdlines', { names: ['msedge'] }).catch(() => [])]);
   const self = new Set([process.pid, process.ppid]);
+  // The tray app (it wrote its pid to session.json) is part of us too.
+  try { self.add(JSON.parse((await fs.readFile(path.join(DATA_DIR, 'session.json'), 'utf8')).replace(/^﻿/, '')).pid); } catch {}
+  // Our window is an Edge app window with its own profile. Keep it apart from
+  // the user's Edge so "End" on Edge can't close Storage Cleaner itself.
+  const prof = APP_PROFILE.toLowerCase();
+  const ownWindow = new Set(edge.filter((r) => r.cmd && r.cmd.toLowerCase().includes(prof)).map((r) => r.pid));
   const groups = new Map();
   for (const p of procs) {
-    const key = p.name.toLowerCase();
+    const mine = ownWindow.has(p.pid);
+    const key = mine ? 'storage cleaner window' : p.name.toLowerCase();
     let g = groups.get(key);
-    if (!g) groups.set(key, (g = { key, name: p.name, title: null, company: null, path: null, count: 0, ws: 0, priv: 0, cpu: 0, pids: [], services: 0 }));
+    if (!g) groups.set(key, (g = { key, name: p.name, title: mine ? 'Storage Cleaner window' : null, company: null, path: null, count: 0, ws: 0, priv: 0, cpu: 0, pids: [], services: 0, self: mine }));
     g.count++; g.ws += p.ws; g.priv += p.priv; g.cpu += p.cpu; g.pids.push(p.pid);
     if (p.session === 0) g.services++;
     if (!g.title && p.desc) g.title = p.desc;
@@ -678,7 +685,7 @@ async function boost() {
 
 async function elevate() {
   const tray = path.join(HERE, 'tray.ps1');
-  const args = `-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${tray}" -Open`;
+  const args = `-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${tray}" -Open -Handover`;
   const r = await ps(`try { Start-Process -FilePath powershell.exe -ArgumentList '${args.replace(/'/g, "''")}' -Verb RunAs -WindowStyle Hidden -ErrorAction Stop; 'ok' } catch { 'cancelled' }`);
   if (!r.stdout.includes('ok')) throw new Error('Administrator permission was not granted.');
   // Hand over to the elevated copy; the tray exits when it sees code 42.

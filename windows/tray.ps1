@@ -7,7 +7,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File tray.ps1 [-Open]
 
-param([switch]$Open)
+param([switch]$Open, [switch]$Handover)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing, Microsoft.VisualBasic
@@ -43,7 +43,9 @@ function Open-Window([string]$url) {
 # ---- single instance: a second launch just opens the window ----
 $mutex = New-Object System.Threading.Mutex($false, 'Local\StorageCleanerTray')
 $owned = $false
-try { $owned = $mutex.WaitOne(10000) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
+# Already running: open its window right away. Only a hand-over to an elevated
+# copy waits for the old instance to quit first.
+try { $owned = $mutex.WaitOne($(if ($Handover) { 15000 } else { 0 })) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
 if (-not $owned) {
   try { $s = Get-Content $SessionFile -Raw | ConvertFrom-Json; Open-Window $s.url } catch { }
   exit
@@ -184,7 +186,7 @@ function Restart-Elevated {
     Stop-Server
     $tray.Visible = $false
     try { $mutex.ReleaseMutex() } catch { }
-    Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Open"
+    Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Open -Handover"
     $tray.Dispose()
     [System.Windows.Forms.Application]::Exit()
   } catch {
