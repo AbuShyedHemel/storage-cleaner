@@ -9,6 +9,8 @@ Storage Cleaner lives in your menu bar, shows your free disk space at a glance, 
 
 Everything runs locally on your Mac. There is no account, telemetry, or network service, and nothing is deleted without your confirmation.
 
+> **On Windows?** There is a Windows 10/11 edition in [`windows/`](windows/README.md): a tray app with a RAM cleaner, storage cleaner, startup-app manager and performance settings. See the [Windows README](windows/README.md).
+
 ![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey)
 ![Swift](https://img.shields.io/badge/Swift-AppKit-orange)
 ![Node](https://img.shields.io/badge/Node.js-18%2B-green)
@@ -220,10 +222,19 @@ storage-cleaner/
 ├── dev.mjs                    # Developer tools: ports, dev servers, Git status
 ├── index.html                 # Single-page glass UI (Storage + Developer)
 ├── Storage Cleaner.command    # Double-click launcher for browser mode
-└── mac-app/
-    ├── main.swift             # Menu bar app: status item, popover, window, server process
-    ├── Info.plist             # Bundle settings (menu bar only, local networking)
-    └── build.sh               # Compile, bundle, sign and optionally install
+├── mac-app/
+│   ├── main.swift             # Menu bar app: status item, popover, window, server process
+│   ├── Info.plist             # Bundle settings (menu bar only, local networking)
+│   └── build.sh               # Compile, bundle, sign and optionally install
+└── windows/                   # Windows 10/11 edition (see windows/README.md)
+    ├── server.mjs             # Local server: memory, storage, startup apps, settings
+    ├── helper.cs              # Native helper, compiled on first run with the in-box csc.exe
+    ├── index.html             # Windows 11-style interface
+    ├── app.cs                 # Native app window (WebView2)
+    ├── build-window.ps1       # Builds the app window and icon
+    ├── tray.ps1               # System tray app with live RAM icon
+    ├── install.ps1            # Start menu / desktop / sign-in shortcuts, -Uninstall
+    └── Storage Cleaner.cmd    # Double-click launcher
 ```
 
 ---

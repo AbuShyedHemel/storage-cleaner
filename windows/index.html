@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storage Cleaner</title>
+<style>
+/* Windows 11 (Fluent) look: Segoe UI Variable, Mica-like backdrop, soft cards. */
+:root {
+  color-scheme: light dark;
+  --ink: #1b1b1b; --muted: #5d5d5d; --faint: #8a8a8a;
+  --bg: #f3f3f3; --mica: linear-gradient(135deg, #eef3fb 0%, #f6f2f7 55%, #f1f5f2 100%);
+  --card: rgba(255,255,255,.72); --card-hi: #fff; --card-line: rgba(0,0,0,.06); --line: rgba(0,0,0,.075);
+  --fill: rgba(0,0,0,.037); --fill-hi: rgba(0,0,0,.06);
+  --accent: #005fb8; --accent-hi: #0067c0; --accent-ink: #fff; --accent-soft: rgba(0,95,184,.1);
+  --good: #0f7b0f; --good-bg: rgba(15,123,15,.1); --warn: #9d5d00; --warn-bg: rgba(255,170,0,.16);
+  --bad: #c42b1c; --bad-bg: rgba(196,43,28,.1); --info: #5d5d5d; --info-bg: rgba(0,0,0,.05);
+  --ram: #005fb8; --ram2: #8764b8; --cache: #9dc0e8; --free: rgba(0,0,0,.08);
+  --shadow: 0 2px 4px rgba(0,0,0,.04), 0 0 0 .5px rgba(0,0,0,.02);
+  --nav: rgba(255,255,255,.45);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #fff; --muted: #c5c5c5; --faint: #8f8f8f;
+    --bg: #202020; --mica: linear-gradient(135deg, #1d2230 0%, #241f27 55%, #1c2420 100%);
+    --card: rgba(255,255,255,.05); --card-hi: rgba(255,255,255,.08); --card-line: rgba(255,255,255,.06); --line: rgba(255,255,255,.07);
+    --fill: rgba(255,255,255,.05); --fill-hi: rgba(255,255,255,.08);
+    --accent: #4cc2ff; --accent-hi: #60cdff; --accent-ink: #000; --accent-soft: rgba(76,194,255,.14);
+    --good: #6ccb5f; --good-bg: rgba(108,203,95,.14); --warn: #fce100; --warn-bg: rgba(252,225,0,.12);
+    --bad: #ff99a4; --bad-bg: rgba(255,153,164,.13); --info: #c5c5c5; --info-bg: rgba(255,255,255,.07);
+    --ram: #4cc2ff; --ram2: #b4a0ff; --cache: #2b5a80; --free: rgba(255,255,255,.1);
+    --shadow: 0 2px 6px rgba(0,0,0,.2);
+    --nav: rgba(0,0,0,.12);
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--mica), var(--bg); background-attachment: fixed; color: var(--ink);
+  font: 14px/1.43 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; }
+.path, code, .sel-text { user-select: text; }
+button { font: inherit; color: inherit; }
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* shell */
+.shell { display: grid; grid-template-columns: 228px minmax(0, 1fr); min-height: 100vh; }
+aside { padding: 14px 8px; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 2px; background: var(--nav); }
+.brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 16px; font-weight: 600; font-size: 14px; }
+.brand .logo { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; background: linear-gradient(135deg, #0a84ff, #5e5ce6); color: #fff; }
+.brand .logo svg { width: 17px; height: 17px; }
+.brand small { display: block; font-weight: 400; color: var(--muted); font-size: 11.5px; }
+.navb { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 0; background: none; border-radius: 6px; text-align: left; position: relative; cursor: default; }
+.navb:hover { background: var(--fill); }
+.navb.on { background: var(--fill-hi); font-weight: 600; }
+.navb.on::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 3px; background: var(--accent); }
+.navb .badge { margin-left: auto; }
+.aside-foot { margin-top: auto; padding: 10px; display: grid; gap: 8px; }
+.livebox { display: grid; gap: 7px; font-size: 12px; color: var(--muted); }
+.livebox .lrow { display: grid; grid-template-columns: 34px 1fr 38px; align-items: center; gap: 8px; }
+.livebox b { color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; }
+.mini { height: 4px; border-radius: 9px; background: var(--free); overflow: hidden; }
+.mini i { display: block; height: 100%; background: var(--accent); border-radius: 9px; transition: width .6s, background .3s; }
+main { padding: 24px 32px 90px; max-width: 1080px; width: 100%; }
+h1 { font: 600 28px/1.25 "Segoe UI Variable Display", "Segoe UI", sans-serif; margin: 0 0 4px; letter-spacing: -.01em; }
+.lede { color: var(--muted); margin: 0 0 20px; }
+h2 { font-size: 15px; font-weight: 600; margin: 22px 0 8px; display: flex; align-items: center; gap: 8px; }
+h2 .sub { margin-left: auto; font-weight: 400; font-size: 12.5px; color: var(--muted); }
+@media (max-width: 760px) {
+  .shell { grid-template-columns: 1fr; }
+  aside { position: static; height: auto; flex-direction: row; overflow-x: auto; padding: 8px; }
+  .brand, .aside-foot { display: none; }
+  .navb { padding: 7px 10px; white-space: nowrap; }
+  .navb.on::before { display: none; }
+  main { padding: 16px 16px 90px; }
+}
+
+/* cards */
+.card { background: var(--card); border: 1px solid var(--card-line); border-radius: 8px; box-shadow: var(--shadow); }
+.pad { padding: 16px 18px; }
+.grid { display: grid; gap: 10px; }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 900px) { .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .g2, .g4 { grid-template-columns: 1fr; } }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--card-hi); border-radius: 5px; padding: 5px 13px; min-height: 32px; box-shadow: 0 1px 0 rgba(0,0,0,.05); cursor: default; white-space: nowrap; }
+.btn:hover { background: var(--fill-hi); }
+.btn:active { opacity: .8; }
+.btn.primary { background: var(--accent); border-color: transparent; color: var(--accent-ink); font-weight: 600; }
+.btn.primary:hover { background: var(--accent-hi); }
+.btn.danger { color: var(--bad); }
+.btn.sm { min-height: 26px; padding: 2px 10px; font-size: 12.5px; }
+.btn.big { min-height: 40px; padding: 8px 22px; font-size: 15px; }
+.btn:disabled { opacity: .45; pointer-events: none; }
+.link { color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; }
+.link:hover { text-decoration: underline; }
+
+/* badges */
+.badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 0 7px; border-radius: 99px; line-height: 18px; white-space: nowrap; }
+.badge.safe, .badge.good, .badge.low { color: var(--good); background: var(--good-bg); }
+.badge.caution, .badge.warn, .badge.medium { color: var(--warn); background: var(--warn-bg); }
+.badge.danger, .badge.bad, .badge.high { color: var(--bad); background: var(--bad-bg); }
+.badge.info { color: var(--info); background: var(--info-bg); }
+.badge.accent { color: var(--accent); background: var(--accent-soft); }
+
+/* overview */
+.hero { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 26px; align-items: center; padding: 22px 24px; }
+@media (max-width: 620px) { .hero { grid-template-columns: 1fr; justify-items: center; text-align: center; } }
+.ring { width: 132px; height: 132px; position: relative; }
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 10; }
+.ring .track { stroke: var(--free); }
+.ring .val { stroke-linecap: round; transition: stroke-dashoffset 1s ease, stroke .3s; }
+.ring .num { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+.ring .num b { font: 600 36px/1 "Segoe UI Variable Display", "Segoe UI"; display: block; }
+.ring .num span { font-size: 12px; color: var(--muted); }
+.hero h3 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
+.hero p { margin: 0 0 14px; color: var(--muted); }
+.hero .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 620px) { .hero .acts { justify-content: center; } }
+.tile { padding: 14px 16px; border: 1px solid var(--card-line); }
+.tile button { all: unset; }
+.tile .k { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.tile .v { font: 600 22px/1.2 "Segoe UI Variable Display", "Segoe UI"; margin: 4px 0 8px; font-variant-numeric: tabular-nums; }
+.tile .v small { font: 400 12.5px "Segoe UI"; color: var(--muted); margin-left: 4px; }
+.bar { height: 6px; border-radius: 9px; background: var(--free); overflow: hidden; display: flex; }
+.bar i { display: block; height: 100%; transition: width .6s; }
+.advice { overflow: hidden; }
+.adv { display: grid; grid-template-columns: 22px minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.adv:last-child { border-bottom: 0; }
+.adv .ic { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; }
+.adv .ic svg { width: 12px; height: 12px; stroke-width: 2.4; }
+.adv.bad .ic { background: var(--bad); color: #fff; }
+.adv.warn .ic { background: #f7b500; color: #000; }
+.adv.info .ic { background: var(--accent); color: var(--accent-ink); }
+.adv.good .ic { background: var(--good); color: #fff; }
+.adv b { font-weight: 600; display: block; }
+.adv span { color: var(--muted); font-size: 13px; }
+
+/* lists */
+.list { overflow: hidden; }
+.list h3 { margin: 0; padding: 8px 16px; font-size: 12.5px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 10px; background: var(--fill); }
+.row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 14px 9px 16px; border-bottom: 1px solid var(--line); min-height: 52px; }
+.row.nolead { grid-template-columns: minmax(0, 1fr) auto; }
+.row:last-child { border-bottom: 0; }
+.row:hover { background: var(--fill); }
+.row.done { opacity: .45; }
+.row .main { min-width: 0; cursor: default; }
+.row.x .main { cursor: pointer; }
+.name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.name > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.note { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.path { display: none; color: var(--faint); font: 11.5px Consolas, "Cascadia Mono", monospace; word-break: break-all; margin-top: 3px; }
+.row.open .note, .row.open .name { white-space: normal; }
+.row.open .path { display: block; }
+.side { display: flex; align-items: center; gap: 10px; }
+.sizecol { width: 78px; }
+.size { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px; text-align: right; }
+.sbar { height: 3px; background: var(--free); border-radius: 9px; margin-top: 4px; overflow: hidden; }
+.sbar i { display: block; height: 100%; background: var(--accent); border-radius: 9px; }
+.meta { color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+input[type=checkbox] { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.lead { display: grid; place-items: center; color: var(--muted); }
+.lead svg { width: 18px; height: 18px; }
+.lead .folder { color: #e8a317; fill: currentColor; fill-opacity: .25; }
+
+/* toggle switch */
+.sw { position: relative; width: 40px; height: 20px; flex: none; }
+.sw input { opacity: 0; position: absolute; inset: 0; margin: 0; width: 100%; height: 100%; z-index: 1; cursor: default; }
+.sw span { position: absolute; inset: 0; border-radius: 99px; border: 1px solid var(--muted); background: transparent; transition: .2s; }
+.sw span::after { content: ""; position: absolute; width: 12px; height: 12px; left: 3px; top: 3px; border-radius: 50%; background: var(--muted); transition: .2s; }
+.sw input:checked + span { background: var(--accent); border-color: var(--accent); }
+.sw input:checked + span::after { left: 23px; background: var(--accent-ink); }
+.sw input:disabled + span { opacity: .4; }
+.swlabel { font-size: 12.5px; color: var(--muted); width: 26px; }
+
+/* tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 0 14px; overflow-x: auto; }
+.tabs button { border: 0; background: none; padding: 8px 12px 10px; position: relative; color: var(--muted); white-space: nowrap; cursor: default; }
+.tabs button:hover { color: var(--ink); }
+.tabs button.on { color: var(--ink); font-weight: 600; }
+.tabs button.on::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 3px; border-radius: 3px; background: var(--accent); }
+.tabs .count { color: var(--faint); font-weight: 400; margin-left: 4px; font-size: 12px; }
+.toolbar { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; flex-wrap: wrap; }
+.toolbar .grow { flex: 1; min-width: 0; }
+.hint { color: var(--muted); font-size: 12.5px; }
+select.sel { font: inherit; font-size: 13px; color: var(--ink); background: var(--card-hi); border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; }
+.crumbs { font: 12.5px Consolas, "Cascadia Mono", monospace; display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+.crumbs a { color: var(--accent); cursor: pointer; padding: 1px 4px; border-radius: 4px; }
+.crumbs a:hover { background: var(--fill-hi); }
+
+/* memory composition */
+.membar { height: 22px; border-radius: 6px; overflow: hidden; display: flex; background: var(--free); margin: 12px 0 10px; }
+.membar i { display: block; height: 100%; transition: width .6s; }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.legend b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; display: block; font-size: 15px; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: 0; }
+
+.loading { padding: 40px 16px; text-align: center; color: var(--muted); }
+.spin { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--fill-hi); border-top-color: var(--accent); border-radius: 50%; animation: s .8s linear infinite; vertical-align: -3px; margin-right: 9px; }
+@keyframes s { to { transform: rotate(360deg); } }
+.empty { padding: 28px 16px; text-align: center; color: var(--muted); }
+.err { color: var(--bad); padding: 16px; }
+.banner { display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-radius: 8px; background: var(--accent-soft); margin: 0 0 14px; font-size: 13px; }
+.banner .grow { flex: 1; }
+.banner.warn { background: var(--warn-bg); }
+
+/* dock + dialog + toast */
+.dock { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; padding: 8px 10px 8px 18px; display: none; z-index: 6; width: min(680px, calc(100% - 32px)); background: var(--card-hi); backdrop-filter: blur(30px); }
+.dock.show { display: flex; align-items: center; gap: 10px; }
+.dock .grow { flex: 1; color: var(--muted); }
+.dock b { color: var(--ink); font-variant-numeric: tabular-nums; }
+dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); max-width: 480px; width: calc(100% - 32px); padding: 0; box-shadow: 0 32px 64px rgba(0,0,0,.28); }
+dialog::backdrop { background: rgba(0,0,0,.3); }
+dialog .body { padding: 22px 24px 18px; }
+dialog h2 { margin: 0 0 10px; font-size: 19px; font-weight: 600; }
+dialog p { margin: 8px 0; }
+dialog ul { padding: 0; list-style: none; margin: 10px 0; max-height: 240px; overflow: auto; border-radius: 6px; border: 1px solid var(--line); }
+dialog li { padding: 7px 11px; border-bottom: 1px solid var(--line); font-size: 13px; }
+dialog li:last-child { border: 0; }
+dialog li .note { white-space: normal; }
+dialog .foot { display: flex; justify-content: flex-end; gap: 8px; padding: 18px 24px; background: var(--fill); border-top: 1px solid var(--line); }
+dialog .foot .btn { min-width: 110px; }
+.toast { position: fixed; left: 50%; bottom: 76px; transform: translate(-50%, 10px); background: var(--card-hi); backdrop-filter: blur(30px); border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 10px 16px; border-radius: 8px; max-width: min(520px, calc(100% - 32px)); opacity: 0; transition: .25s; pointer-events: none; z-index: 10; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.fx { display: flex; gap: 10px; flex-wrap: wrap; }
+.qa { display: grid; grid-template-columns: 36px minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.qa:last-child { border-bottom: 0; }
+.qa .q { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.qa .q svg { width: 18px; height: 18px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--fill-hi); border-radius: 99px; border: 3px solid transparent; background-clip: content-box; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside>
+    <div class="brand"><div class="logo"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg></div><div>Storage Cleaner<small id="who">for Windows</small></div></div>
+    <button class="navb on" data-page="overview"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</button>
+    <button class="navb" data-page="memory"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="1.5"/><path d="M7 7V4M11 7V4M15 7V4M19 7V4M7 20v-3M11 20v-3M15 20v-3M19 20v-3"/><rect x="6.5" y="10" width="3" height="4" rx=".5"/><rect x="11" y="10" width="3" height="4" rx=".5"/></svg>Memory<span class="badge info" id="nb-mem"></span></button>
+    <button class="navb" data-page="storage"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 14h18"/><circle cx="17" cy="16.5" r=".6" fill="currentColor"/></svg>Storage</button>
+    <button class="navb" data-page="startup"><svg class="i" viewBox="0 0 24 24"><path d="M5 19c1-3 2-4 4-5"/><path d="M14 4c3 0 6 3 6 6-2 3-5 6-9 7l-4-4c1-4 4-7 7-9z"/><circle cx="14.5" cy="9.5" r="1.5"/></svg>Startup apps<span class="badge info" id="nb-startup"></span></button>
+    <button class="navb" data-page="performance"><svg class="i" viewBox="0 0 24 24"><path d="M12 13l4-4"/><path d="M4.9 19a9 9 0 1 1 14.2 0"/></svg>Performance</button>
+    <div class="aside-foot">
+      <div class="livebox">
+        <div class="lrow">CPU<div class="mini"><i id="l-cpu" style="width:0"></i></div><b id="l-cpu-t">–</b></div>
+        <div class="lrow">RAM<div class="mini"><i id="l-ram" style="width:0"></i></div><b id="l-ram-t">–</b></div>
+      </div>
+      <button class="btn sm" id="elevate" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/></svg>Run as administrator</button>
+    </div>
+  </aside>
+
+  <main>
+    <section id="p-overview"></section>
+    <section id="p-memory" hidden></section>
+    <section id="p-storage" hidden>
+      <h1>Storage</h1>
+      <p class="lede">See where your space went and clear caches, temp files and build output safely.</p>
+      <div class="card pad" id="disk"><div class="loading"><span class="spin"></span>Reading drive…</div></div>
+      <div class="tabs" id="stabs" style="margin-top:18px">
+        <button data-tab="clean" class="on">Clean up<span class="count" id="c-clean"></span></button>
+        <button data-tab="projects">Projects<span class="count" id="c-projects"></span></button>
+        <button data-tab="large">Large files<span class="count" id="c-large"></span></button>
+        <button data-tab="explore">Explore folders</button>
+      </div>
+      <div id="t-clean"></div>
+      <div id="t-projects" hidden></div>
+      <div id="t-large" hidden></div>
+      <div id="t-explore" hidden></div>
+    </section>
+    <section id="p-startup" hidden></section>
+    <section id="p-performance" hidden></section>
+  </main>
+</div>
+
+<div class="dock card" id="dock">
+  <div class="grow"><b id="dock-n">0</b> selected · <b id="dock-size">0 B</b></div>
+  <button class="btn" id="dock-none">Deselect</button>
+  <button class="btn primary" id="dock-go">Clean selected</button>
+</div>
+
+<dialog id="confirm">
+  <div class="body"><h2 id="cf-title"></h2><div id="cf-body"></div></div>
+  <div class="foot"><button class="btn primary" id="cf-yes">OK</button><button class="btn" id="cf-no">Cancel</button></div>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get('t');
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const KB = 1024, MB = KB * 1024, GB = MB * 1024;
+
+function fmt(b) {
+  if (b == null) return '–';
+  if (b < KB) return `${b} B`;
+  const u = ['KB', 'MB', 'GB', 'TB']; let i = -1;
+  do { b /= 1024; i++; } while (b >= 1024 && i < u.length - 1);
+  return `${b < 10 && i > 0 ? b.toFixed(1) : Math.round(b)} ${u[i]}`;
+}
+const pct = (a, b) => (b ? Math.max(0, Math.min(100, (a / b) * 100)) : 0);
+function ago(iso) {
+  if (!iso) return '';
+  const d = (Date.now() - new Date(iso)) / 86400000;
+  if (d < 1) return 'today'; if (d < 2) return 'yesterday'; if (d < 30) return `${Math.floor(d)} days ago`;
+  if (d < 365) return `${Math.floor(d / 30)} mo ago`; return `${(d / 365).toFixed(1)} yr ago`;
+}
+function dur(s) { const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`; }
+const loadColor = (p) => p >= 85 ? 'var(--bad)' : p >= 70 ? '#f7b500' : 'var(--accent)';
+
+async function api(p, body) {
+  const r = await fetch('/api/' + p, { method: body ? 'POST' : 'GET', headers: { 'X-Token': TOKEN, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+  if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+
+let toastT;
+function toast(msg, ms = 4200) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
+
+function confirmBox(title, html, yes = 'OK', danger = false) {
+  return new Promise((resolve) => {
+    const d = $('#confirm');
+    $('#cf-title').textContent = title; $('#cf-body').innerHTML = html;
+    const y = $('#cf-yes'); y.textContent = yes; y.className = 'btn ' + (danger ? 'primary danger-bg' : 'primary');
+    if (danger) y.style.background = 'var(--bad)'; else y.style.background = '';
+    const done = (v) => { d.close(); y.onclick = $('#cf-no').onclick = null; resolve(v); };
+    y.onclick = () => done(true); $('#cf-no').onclick = () => done(false); d.oncancel = () => done(false);
+    d.showModal(); y.focus();
+  });
+}
+
+const ICON = {
+  check: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  warn: '<svg class="i" viewBox="0 0 24 24"><path d="M12 7v6"/><path d="M12 17h.01"/></svg>',
+  info: '<svg class="i" viewBox="0 0 24 24"><path d="M12 11v6"/><path d="M12 7h.01"/></svg>',
+  x: '<svg class="i" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17"/></svg>',
+  folder: '<svg class="i folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  file: '<svg class="i" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+  link: '<svg class="i" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
+  bolt: '<svg class="i" viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></svg>',
+  shield: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/></svg>',
+  refresh: '<svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
+  broom: '<svg class="i" viewBox="0 0 24 24"><path d="M19 3 11 11"/><path d="M8.5 10.5 13.5 15.5"/><path d="M8.5 10.5c-3 1-4.5 3-5.5 9.5 6.5-1 8.5-2.5 9.5-5.5"/></svg>',
+};
+const LEVEL_ICON = { bad: ICON.x, warn: ICON.warn, info: ICON.info, good: ICON.check };
+
+// ---------- navigation ----------
+let page = 'overview';
+const loaded = {};
+function go(p) {
+  page = p;
+  $$('.navb').forEach((b) => b.classList.toggle('on', b.dataset.page === p));
+  $$('main > section').forEach((s) => (s.hidden = s.id !== 'p-' + p));
+  dock();
+  try { localStorage.setItem('sc-page', p); } catch {}
+  if (!loaded[p]) { loaded[p] = true; LOADERS[p](); }
+  window.scrollTo(0, 0);
+}
+$$('.navb').forEach((b) => (b.onclick = () => go(b.dataset.page)));
+
+// ---------- live stats ----------
+let IS_ADMIN = false;
+async function live() {
+  try {
+    const s = await api('live');
+    $('#l-cpu').style.width = s.cpu + '%'; $('#l-cpu-t').textContent = s.cpu + '%'; $('#l-cpu').style.background = loadColor(s.cpu);
+    $('#l-ram').style.width = s.mem.load + '%'; $('#l-ram-t').textContent = s.mem.load + '%'; $('#l-ram').style.background = loadColor(s.mem.load);
+    $('#nb-mem').textContent = s.mem.load + '%';
+    $('#nb-mem').className = 'badge ' + (s.mem.load >= 85 ? 'bad' : s.mem.load >= 70 ? 'warn' : 'info');
+    const o = $('#ov-ram'); if (o) { o.querySelector('.v').innerHTML = `${s.mem.load}%<small>${fmt(s.mem.total - s.mem.available)} of ${fmt(s.mem.total)}</small>`; o.querySelector('.bar i').style.width = s.mem.load + '%'; o.querySelector('.bar i').style.background = loadColor(s.mem.load); }
+    const c = $('#ov-cpu'); if (c) { c.querySelector('.v').innerHTML = `${s.cpu}%<small>${c.dataset.cores} cores</small>`; c.querySelector('.bar i').style.width = s.cpu + '%'; c.querySelector('.bar i').style.background = loadColor(s.cpu); }
+  } catch {}
+}
+setInterval(() => { if (!document.hidden) live(); }, 2000);
+
+function setAdmin(v) {
+  IS_ADMIN = v;
+  $('#who').textContent = v ? 'Administrator' : 'for Windows';
+  $('#elevate').hidden = v;
+}
+$('#elevate').onclick = elevate;
+async function elevate() {
+  const ok = await confirmBox('Run as administrator?', '<p>Windows will ask for permission. Storage Cleaner then reopens with access to system temp files, update caches, the standby memory cache, hibernation and startup apps installed for all users.</p>', 'Continue');
+  if (!ok) return;
+  try { await api('elevate', {}); document.body.innerHTML = '<div class="empty" style="padding:80px 20px"><h2 style="justify-content:center">Reopening as administrator…</h2><p>You can close this window.</p></div>'; }
+  catch (e) { toast(e.message); }
+}
+function adminBanner(what) {
+  return IS_ADMIN ? '' : `<div class="banner"><span>${ICON.shield}</span><div class="grow">${what}</div><button class="btn sm" onclick="elevate()">Run as administrator</button></div>`;
+}
+
+// ---------- overview ----------
+async function loadOverview() {
+  const el = $('#p-overview');
+  el.innerHTML = `<h1>Overview</h1><p class="lede">How your PC is doing right now, and what will make it faster.</p><div class="card loading"><span class="spin"></span>Checking memory, storage, startup apps and settings…</div>`;
+  try {
+    const o = await api('overview');
+    setAdmin(o.isAdmin);
+    $('#nb-startup').textContent = o.startup.enabled;
+    const score = o.score, col = score >= 80 ? 'var(--good)' : score >= 55 ? '#f7b500' : 'var(--bad)';
+    const verdict = score >= 80 ? 'Your PC is in good shape' : score >= 55 ? 'Your PC could run smoother' : 'Your PC needs attention';
+    const top = o.advice.find((a) => a.level !== 'good');
+    const C = 2 * Math.PI * 56;
+    const d = o.disk, used = pct(d.used, d.total);
+    el.innerHTML = `
+      <h1>Overview</h1><p class="lede">${esc(o.system.os)} · ${esc(o.system.cpu)} · up ${dur(o.system.uptime)}</p>
+      <div class="card hero">
+        <div class="ring"><svg viewBox="0 0 132 132"><circle class="track" cx="66" cy="66" r="56"/><circle class="val" cx="66" cy="66" r="56" stroke="${col}" stroke-dasharray="${C}" stroke-dashoffset="${C}" id="ring-val"/></svg>
+          <div class="num"><div><b>${score}</b><span>Health</span></div></div></div>
+        <div><h3>${verdict}</h3><p>${top ? esc(top.title) + '. ' + esc(top.detail) : 'Nothing urgent. Boost frees memory and clears temporary files whenever you like.'}</p>
+          <div class="acts"><button class="btn primary big" id="boost">${ICON.bolt}Boost now</button><button class="btn big" id="ov-refresh">${ICON.refresh}Check again</button></div></div>
+      </div>
+      <div class="grid g4" style="margin-top:10px">
+        <div class="card tile" id="ov-ram"><div class="k">Memory</div><div class="v">${o.mem.load}%<small>${fmt(o.mem.total - o.mem.available)} of ${fmt(o.mem.total)}</small></div><div class="bar"><i style="width:${o.mem.load}%;background:${loadColor(o.mem.load)}"></i></div></div>
+        <div class="card tile" id="ov-cpu" data-cores="${o.system.cores}"><div class="k">Processor</div><div class="v">–<small>${o.system.cores} cores</small></div><div class="bar"><i style="width:0"></i></div></div>
+        <div class="card tile"><div class="k">Drive ${esc(d.drive)}${d.media ? ` <span class="badge ${d.media === 'HDD' ? 'warn' : 'info'}">${esc(d.media)}</span>` : ''}</div><div class="v">${fmt(d.free)}<small>free of ${fmt(d.total)}</small></div><div class="bar"><i style="width:${used}%;background:${used > 90 ? 'var(--bad)' : used > 80 ? '#f7b500' : 'var(--accent)'}"></i></div></div>
+        <div class="card tile"><div class="k">Startup apps</div><div class="v">${o.startup.enabled}<small>of ${o.startup.total} on</small></div><div class="bar"><i style="width:${pct(o.startup.enabled, o.startup.total)}%"></i></div></div>
+      </div>
+      <h2>Recommendations</h2>
+      <div class="card advice">${o.advice.map((a) => `<div class="adv ${a.level}"><div class="ic">${LEVEL_ICON[a.level]}</div><div><b>${esc(a.title)}</b><span>${esc(a.detail)}</span></div>${a.go ? `<button class="btn sm" data-go="${a.go}">Open</button>` : ''}</div>`).join('')}</div>
+      <h2>Using the most memory<span class="sub"><button class="link" data-go="memory">See all</button></span></h2>
+      <div class="card list">${o.topApps.map((g) => `<div class="row nolead"><div class="main"><div class="name"><span>${esc(g.title || g.name)}</span>${g.count > 1 ? `<span class="badge info">${g.count} processes</span>` : ''}</div><div class="note">${esc(g.company || (g.critical ? 'Part of Windows' : g.name + '.exe'))}</div></div><div class="side"><div class="size">${fmt(g.ws)}</div></div></div>`).join('')}</div>`;
+    requestAnimationFrame(() => requestAnimationFrame(() => { $('#ring-val').style.strokeDashoffset = C * (1 - score / 100); }));
+    $$('[data-go]', el).forEach((b) => (b.onclick = () => go(b.dataset.go)));
+    $('#ov-refresh').onclick = loadOverview;
+    $('#boost').onclick = boost;
+    live();
+  } catch (e) { el.innerHTML = `<h1>Overview</h1><div class="card err">${esc(e.message)}</div>`; }
+}
+
+async function boost() {
+  const ok = await confirmBox('Boost now?', `<p>Storage Cleaner will:</p><ul>
+    <li><b>Free up memory</b><div class="note">Asks every app to return memory it isn't using right now${IS_ADMIN ? ', and clears the standby cache' : ''}.</div></li>
+    <li><b>Delete temporary files</b><div class="note">Temp folder, crash dumps and error reports${IS_ADMIN ? ', Windows temp and update download caches' : ''}.</div></li></ul>
+    <p class="note" style="white-space:normal">No caches that cost a re-download, no browser data, nothing in your folders.</p>`, 'Boost');
+  if (!ok) return;
+  const b = $('#boost'); b.disabled = true; b.innerHTML = '<span class="spin"></span>Boosting…';
+  try {
+    const r = await api('boost', {});
+    toast(`Freed ${fmt(r.ram.freed)} of memory and ${fmt(r.disk.freed)} of disk space.`, 6000);
+    loadOverview();
+    loaded.storage = false; loaded.memory = false;
+  } catch (e) { toast(e.message); b.disabled = false; b.innerHTML = ICON.bolt + 'Boost now'; }
+}
+
+// ---------- memory ----------
+async function loadMemory() {
+  const el = $('#p-memory');
+  if (!el.innerHTML) el.innerHTML = `<h1>Memory</h1><p class="lede">What is using your RAM, and free it up.</p><div class="card loading"><span class="spin"></span>Reading memory…</div>`;
+  try {
+    const r = await api('memory');
+    setAdmin(r.isAdmin);
+    const m = r.mem;
+    const inUse = m.total - m.available;
+    const compressed = Math.max(0, m.compressed);
+    const standby = Math.max(0, m.standby);
+    const free = Math.max(0, m.available - standby);
+    const used = Math.max(0, inUse - compressed);
+    const commitPct = pct(m.commit, m.commitLimit);
+    el.innerHTML = `
+      <h1>Memory</h1><p class="lede">What is using your RAM, and free it up.</p>
+      ${adminBanner('Run as administrator to also clear the standby cache (the deepest clean Windows allows).')}
+      <div class="card pad">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap">
+          <div><div class="hint">In use</div><div style="font:600 30px/1.1 'Segoe UI Variable Display','Segoe UI'">${fmt(inUse)} <span style="font-size:15px;color:var(--muted);font-weight:400">of ${fmt(m.total)} · ${m.load}%</span></div></div>
+          <div class="fx"><button class="btn" id="m-refresh">${ICON.refresh}Refresh</button><button class="btn primary" id="m-opt">${ICON.broom}Free up memory</button></div>
+        </div>
+        <div class="membar"><i style="width:${pct(used, m.total)}%;background:var(--ram)" title="In use"></i><i style="width:${pct(compressed, m.total)}%;background:var(--ram2)" title="Compressed"></i><i style="width:${pct(standby, m.total)}%;background:var(--cache)" title="Cached"></i></div>
+        <div class="legend">
+          <div><span class="dot" style="background:var(--ram)"></span>In use by apps<b>${fmt(used)}</b></div>
+          <div><span class="dot" style="background:var(--ram2)"></span>Compressed<b>${fmt(compressed)}</b></div>
+          <div><span class="dot" style="background:var(--cache)"></span>Cached (standby)<b>${m.standby < 0 ? '–' : fmt(standby)}</b></div>
+          <div><span class="dot" style="background:var(--free)"></span>Free<b>${fmt(free)}</b></div>
+          <div>Committed<b>${fmt(m.commit)} / ${fmt(m.commitLimit)}</b></div>
+          <div>Processes<b>${m.processes}</b></div>
+        </div>
+        ${commitPct > 85 ? `<div class="banner warn" style="margin:14px 0 0">Virtual memory is ${Math.round(commitPct)}% committed. Close apps you aren't using, or Windows may freeze or close apps.</div>` : ''}
+        <p class="hint" style="margin:14px 0 0">Cached memory is a speed-up, not waste: Windows hands it to apps instantly when needed. Real slowdowns come from the <b>In use</b> part, so closing heavy apps helps more than any cleaner.</p>
+      </div>
+      <h2>Apps and processes<span class="sub">Grouped by app · memory in use now</span></h2>
+      <div class="card list">${r.groups.map((g) => `
+        <div class="row nolead" data-id="${esc(g.id)}">
+          <div class="main"><div class="name"><span>${esc(g.title || g.name)}</span>${g.count > 1 ? `<span class="badge info">${g.count}</span>` : ''}${g.critical ? '<span class="badge info">Windows</span>' : g.service ? '<span class="badge info">Service</span>' : ''}${g.self ? '<span class="badge accent">This app</span>' : ''}</div>
+          <div class="note">${esc([g.company, g.name + '.exe', g.cpu >= 1 ? `CPU ${g.cpu}%` : ''].filter(Boolean).join(' · '))}</div></div>
+          <div class="side"><div class="sizecol"><div class="size">${fmt(g.ws)}</div><div class="sbar"><i style="width:${pct(g.ws, r.groups[0].ws)}%"></i></div></div>
+          ${g.canEnd ? `<button class="btn sm" data-end="${esc(g.id)}">End</button>` : '<span style="width:52px"></span>'}</div>
+        </div>`).join('')}</div>`;
+    $('#m-refresh').onclick = loadMemory;
+    $('#m-opt').onclick = () => optimize();
+    $$('[data-end]', el).forEach((b) => (b.onclick = () => endApp(r.groups.find((g) => g.id === b.dataset.end))));
+  } catch (e) { el.innerHTML = `<h1>Memory</h1><div class="card err">${esc(e.message)}</div>`; }
+}
+
+async function optimize() {
+  const b = $('#m-opt'); b.disabled = true; b.innerHTML = '<span class="spin"></span>Freeing…';
+  try {
+    const r = await api('memory/optimize', { deep: true });
+    toast(`Freed ${fmt(r.freed)}${r.purged ? ' (including the standby cache)' : ''}. ${r.trimmed} apps trimmed.`, 6000);
+  } catch (e) { toast(e.message); }
+  loadMemory(); live();
+}
+
+async function endApp(g) {
+  const ok = await confirmBox(`End ${g.title || g.name}?`, `<p>Closes all ${g.count} process${g.count === 1 ? '' : 'es'} of <b>${esc(g.name)}.exe</b> immediately and frees about <b>${fmt(g.ws)}</b>.</p><p>Unsaved work in this app will be lost.</p>`, 'End app', true);
+  if (!ok) return;
+  try { const r = await api('memory/end', { id: g.id }); toast(`Ended ${g.title || g.name}. Freed ${fmt(r.freed)}.`); } catch (e) { toast(e.message); }
+  loadMemory(); live();
+}
+
+// ---------- storage ----------
+let disk = null, cleanItems = [], projectData = null, largeData = null, expl = null;
+const sel = new Map();
+let stab = 'clean';
+
+function renderDisk(reclaim = 0) {
+  if (!disk) return;
+  const used = disk.used, total = disk.total;
+  $('#disk').innerHTML = `
+    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-end">
+      <div><div class="hint">Drive ${esc(disk.drive)}${disk.media ? ' · ' + esc(disk.media) : ''}</div><div style="font:600 26px/1.15 'Segoe UI Variable Display','Segoe UI'">${fmt(disk.free)} <span style="font-size:14px;color:var(--muted);font-weight:400">free of ${fmt(total)}</span></div></div>
+      ${reclaim ? `<div style="text-align:right"><div class="hint">Can be cleaned</div><div style="font:600 20px 'Segoe UI';color:var(--good)">${fmt(reclaim)}</div></div>` : ''}
+    </div>
+    <div class="bar" style="height:8px;margin:12px 0 8px"><i style="width:${pct(used - reclaim, total)}%;background:var(--accent)"></i><i style="width:${pct(reclaim, total)}%;background:var(--good)"></i></div>
+    <div class="legend">${disk.drives.filter((x) => x.name !== disk.drive).map((x) => `<div>${esc(x.name)} ${esc(x.label || '')}<b>${fmt(x.free)} free of ${fmt(x.total)}</b></div>`).join('')}</div>`;
+}
+
+async function loadStorage() {
+  try { disk = await api('disk'); renderDisk(); } catch (e) { $('#disk').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  showTab(stab, true);
+}
+$$('#stabs button').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+function showTab(t, force) {
+  stab = t;
+  $$('#stabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
+  for (const k of ['clean', 'projects', 'large', 'explore']) $('#t-' + k).hidden = k !== t;
+  if (t === 'clean' && (force || !cleanItems.length)) scanClean();
+  if (t === 'projects' && (force || !projectData)) scanProjects();
+  if (t === 'large' && (force || !largeData)) scanLarge();
+  if (t === 'explore' && (force || !expl)) openDir(expl?.path || '~');
+  dock();
+}
+
+const GROUP_ORDER = ['Windows', 'Browsers', 'App caches', 'Developer caches', 'Docker'];
+async function scanClean() {
+  const el = $('#t-clean');
+  el.innerHTML = `<div class="card loading"><span class="spin"></span>Measuring caches and temp files…</div>`;
+  sel.clear(); dock();
+  try {
+    cleanItems = await api('cleanables');
+    const total = cleanItems.filter((i) => !i.locked && i.size).reduce((a, b) => a + b.size, 0);
+    $('#c-clean').textContent = fmt(total);
+    renderDisk(cleanItems.filter((i) => i.risk === 'safe' && !i.locked).reduce((a, b) => a + (b.size || 0), 0));
+    const max = Math.max(...cleanItems.map((i) => i.size || 0), 1);
+    const groups = [...new Set(cleanItems.map((i) => i.group))].sort((a, b) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b));
+    const anyLocked = cleanItems.some((i) => i.locked);
+    el.innerHTML = `
+      ${anyLocked ? adminBanner('Some Windows locations (system temp, update caches, crash dumps) need administrator rights.') : ''}
+      <div class="toolbar"><button class="btn sm" id="sel-safe">Select all safe</button><div class="grow hint">Tick items, then press Clean selected. Every item says what happens after clearing.</div><button class="btn sm" id="c-rescan">${ICON.refresh}Rescan</button></div>
+      ${groups.map((g) => {
+        const items = cleanItems.filter((i) => i.group === g).sort((a, b) => (b.size || 0) - (a.size || 0));
+        return `<div class="card list" style="margin-bottom:10px"><h3><span>${esc(g)}</span><span>${fmt(items.reduce((a, b) => a + (b.size || 0), 0))}</span></h3>${items.map((i) => `
+          <div class="row x" data-id="${esc(i.id)}">
+            <input type="checkbox" ${i.locked || i.disabled ? 'disabled' : ''} aria-label="Select ${esc(i.name)}">
+            <div class="main"><div class="name"><span>${esc(i.name)}</span><span class="badge ${i.risk}">${i.risk}</span>${i.locked ? '<span class="badge info">Admin</span>' : ''}${i.running?.length ? '<span class="badge warn">App open</span>' : ''}</div>
+              <div class="note">${esc(i.note)}</div>${i.paths?.length ? `<div class="path">${i.paths.map(esc).join('<br>')}</div>` : ''}</div>
+            <div class="side"><div class="sizecol"><div class="size">${i.size == null ? '–' : fmt(i.size)}</div><div class="sbar"><i style="width:${pct(i.size || 0, max)}%"></i></div></div></div>
+          </div>`).join('')}</div>`;
+      }).join('')}`;
+    bindRows(el, cleanItems);
+    $('#sel-safe').onclick = () => { for (const i of cleanItems) if (i.risk === 'safe' && !i.locked && !i.disabled && !i.running?.length && i.size) sel.set(i.id, i); syncChecks(el); dock(); };
+    $('#c-rescan').onclick = () => scanClean();
+  } catch (e) { el.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+}
+
+function bindRows(el, items) {
+  $$('.row[data-id]', el).forEach((row) => {
+    const it = items.find((i) => i.id === row.dataset.id);
+    const cb = $('input[type=checkbox]', row);
+    if (cb) cb.onchange = () => { cb.checked ? sel.set(it.id, it) : sel.delete(it.id); dock(); };
+    $('.main', row).onclick = () => row.classList.toggle('open');
+  });
+  syncChecks(el);
+}
+function syncChecks(el) { $$('.row[data-id]', el).forEach((r) => { const cb = $('input[type=checkbox]', r); if (cb) cb.checked = sel.has(r.dataset.id); }); }
+
+function dock() {
+  const show = page === 'storage' && (stab === 'clean' || stab === 'projects') && sel.size > 0;
+  $('#dock').classList.toggle('show', show);
+  $('#dock-n').textContent = sel.size;
+  $('#dock-size').textContent = fmt([...sel.values()].reduce((a, b) => a + (b.size || 0), 0));
+}
+$('#dock-none').onclick = () => { sel.clear(); $$('#t-clean, #t-projects').forEach(syncChecks); dock(); };
+$('#dock-go').onclick = async () => {
+  const items = [...sel.values()];
+  const risky = items.filter((i) => i.risk !== 'safe');
+  const ok = await confirmBox(`Clean ${items.length} item${items.length === 1 ? '' : 's'}?`,
+    `<p>About <b>${fmt(items.reduce((a, b) => a + (b.size || 0), 0))}</b> will be deleted permanently (not moved to the Recycle Bin).</p>
+     <ul>${items.map((i) => `<li><b>${esc(i.name || i.path)}</b> <span class="badge ${i.risk}">${i.risk}</span><div class="note">${esc(i.note)}</div></li>`).join('')}</ul>
+     ${risky.length ? `<p style="color:var(--warn)">${risky.length} item${risky.length === 1 ? ' needs' : 's need'} care. Read the notes above.</p>` : ''}`, 'Clean', risky.length > 0);
+  if (!ok) return;
+  const b = $('#dock-go'); b.disabled = true; b.innerHTML = '<span class="spin"></span>Cleaning…';
+  try {
+    const r = await api('clear', { ids: items.map((i) => i.id) });
+    disk = r.disk;
+    const fails = r.results.filter((x) => !x.ok);
+    const notes = r.results.filter((x) => x.ok && x.note).map((x) => x.note);
+    toast(`Freed ${fmt(r.freed)}.${fails.length ? ` ${fails.length} failed: ${fails[0].error}` : ''}${notes.length ? ' ' + notes[0] : ''}`, 7000);
+    for (const x of r.results) if (x.ok) { sel.delete(x.id); $(`.row[data-id="${CSS.escape(x.id)}"]`)?.classList.add('done'); }
+  } catch (e) { toast(e.message); }
+  b.disabled = false; b.textContent = 'Clean selected';
+  dock();
+  setTimeout(() => (stab === 'clean' ? scanClean() : scanProjects()), 1200);
+  loaded.overview = false;
+};
+
+async function scanProjects() {
+  const el = $('#t-projects');
+  el.innerHTML = `<div class="card loading"><span class="spin"></span>Looking for node_modules, build output and virtualenvs in your project folders…</div>`;
+  sel.clear(); dock();
+  try {
+    projectData = await api('projects');
+    const items = projectData.items;
+    $('#c-projects').textContent = items.length ? fmt(items.reduce((a, b) => a + b.size, 0)) : '';
+    if (!items.length) { el.innerHTML = `<div class="card empty">No build folders over 20 MB found in ${projectData.roots.map(esc).join(', ')}.</div>`; return; }
+    const byProj = new Map();
+    for (const i of items) { if (!byProj.has(i.project)) byProj.set(i.project, []); byProj.get(i.project).push(i); }
+    const max = items[0].size;
+    const projs = [...byProj.entries()].sort((a, b) => b[1].reduce((x, y) => x + y.size, 0) - a[1].reduce((x, y) => x + y.size, 0));
+    el.innerHTML = `<div class="toolbar"><button class="btn sm" id="p-old">Select safe, untouched 30+ days</button><div class="grow hint">Scanned: ${projectData.roots.map(esc).join(', ')}</div><button class="btn sm" id="p-rescan">${ICON.refresh}Rescan</button></div>
+      ${projs.map(([p, list]) => `<div class="card list" style="margin-bottom:10px"><h3><span>${esc(list[0].projectName)} <span style="font-weight:400">· last change ${esc(ago(list[0].last))}</span></span><span>${fmt(list.reduce((a, b) => a + b.size, 0))}</span></h3>
+        ${list.map((i) => `<div class="row x" data-id="${esc(i.id)}"><input type="checkbox" aria-label="Select ${esc(i.path)}">
+          <div class="main"><div class="name"><span>${esc(i.path.slice(i.project.length + 1) || i.kind)}</span><span class="badge ${i.risk}">${i.risk}</span>${i.onedrive ? '<span class="badge info">OneDrive</span>' : ''}</div><div class="note">${esc(i.note)}</div><div class="path">${esc(i.path)}</div></div>
+          <div class="side"><div class="sizecol"><div class="size">${fmt(i.size)}</div><div class="sbar"><i style="width:${pct(i.size, max)}%"></i></div></div></div></div>`).join('')}</div>`).join('')}`;
+    bindRows(el, items.map((i) => ({ ...i, name: i.path })));
+    $('#p-old').onclick = () => { for (const i of items) if (i.risk === 'safe' && (Date.now() - new Date(i.last)) / 86400000 >= 30) sel.set(i.id, { ...i, name: i.path }); syncChecks(el); dock(); };
+    $('#p-rescan').onclick = scanProjects;
+  } catch (e) { el.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+}
+
+async function scanLarge() {
+  const el = $('#t-large');
+  const min = $('#lg-min')?.value || 500;
+  el.innerHTML = `<div class="card loading"><span class="spin"></span>Searching your user folder for files over ${min} MB…</div>`;
+  try {
+    largeData = await api('large?min=' + min);
+    $('#c-large').textContent = largeData.length || '';
+    el.innerHTML = `<div class="toolbar"><span class="hint">At least</span><select class="sel" id="lg-min">${[100, 250, 500, 1000, 2000].map((n) => `<option value="${n}" ${+min === n ? 'selected' : ''}>${n >= 1000 ? n / 1000 + ' GB' : n + ' MB'}</option>`).join('')}</select><div class="grow hint">Online-only OneDrive files are skipped because they use no space.</div><button class="btn sm" id="lg-rescan">${ICON.refresh}Rescan</button></div>
+      ${largeData.length ? `<div class="card list">${largeData.map((f, k) => `<div class="row" data-k="${k}"><div class="lead">${ICON.file}</div>
+        <div class="main"><div class="name"><span>${esc(f.path.split('\\').pop())}</span>${f.appdata ? '<span class="badge info">App data</span>' : ''}</div><div class="note">${esc(f.path)} · modified ${esc(ago(f.modified))}</div></div>
+        <div class="side"><div class="size">${fmt(f.size)}</div><button class="btn sm" data-reveal="${k}">Show</button>${f.trashable ? `<button class="btn sm danger" data-trash="${k}">Delete</button>` : ''}</div></div>`).join('')}</div>` : `<div class="card empty">No files that large.</div>`}
+      ${largeData.some((f) => f.appdata) ? '<p class="hint" style="margin-top:10px">Files in AppData belong to apps (for example Docker or WSL virtual disks) and can only be shown, not deleted, from here. Remove them from inside the app.</p>' : ''}`;
+    $('#lg-min').onchange = scanLarge;
+    $('#lg-rescan').onclick = scanLarge;
+    $$('[data-reveal]', el).forEach((b) => (b.onclick = () => api('reveal', { path: largeData[b.dataset.reveal].path }).catch((e) => toast(e.message))));
+    $$('[data-trash]', el).forEach((b) => (b.onclick = () => trash(largeData[b.dataset.trash], () => b.closest('.row').classList.add('done'))));
+  } catch (e) { el.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+}
+
+async function trash(item, after) {
+  const ok = await confirmBox('Move to the Recycle Bin?', `<p><code>${esc(item.path)}</code></p><p>${fmt(item.size)}. You can restore it from the Recycle Bin. Empty the Recycle Bin to get the space back.</p>`, 'Move to Recycle Bin');
+  if (!ok) return;
+  try { await api('trash', { path: item.path }); toast('Moved to the Recycle Bin.'); after?.(); } catch (e) { toast(e.message); }
+}
+
+async function openDir(p, fresh) {
+  const el = $('#t-explore');
+  el.innerHTML = `<div class="card loading"><span class="spin"></span>Measuring ${esc(p)}…</div>`;
+  try {
+    expl = await api(`explore?path=${encodeURIComponent(p)}${fresh ? '&fresh=1' : ''}`);
+    const parts = expl.display.split('\\').filter(Boolean);
+    const crumbs = parts.map((name, k) => `<a data-p="${esc(parts.slice(0, k + 1).join('\\') + (k === 0 && /:$/.test(name) ? '\\' : ''))}">${esc(name)}</a>`).join('<span class="hint">›</span>');
+    const max = Math.max(...expl.children.map((c) => c.size), 1);
+    const total = expl.children.reduce((a, b) => a + b.size, 0);
+    el.innerHTML = `<div class="toolbar"><div class="crumbs grow">${crumbs}</div><span class="hint">${fmt(total)}</span>${expl.parent ? `<button class="btn sm" id="ex-up">Up</button>` : ''}<button class="btn sm" id="ex-fresh">${ICON.refresh}</button></div>
+      <div class="card list">${expl.children.length ? expl.children.map((c, k) => `<div class="row" data-k="${k}"><div class="lead">${c.type === 'dir' ? ICON.folder : c.type === 'link' ? ICON.link : ICON.file}</div>
+        <div class="main"><div class="name"><span ${c.type === 'dir' ? `class="link" data-open="${k}"` : ''}>${esc(c.name)}</span>${c.cloud ? '<span class="badge info">Online-only</span>' : ''}${c.system ? '<span class="badge info">System</span>' : ''}</div><div class="note">${c.type === 'dir' ? `${(c.files || 0).toLocaleString()} files` : c.type === 'link' ? 'Link (not counted)' : esc(ago(c.modified))}</div></div>
+        <div class="side"><div class="sizecol"><div class="size">${fmt(c.size)}</div><div class="sbar"><i style="width:${pct(c.size, max)}%"></i></div></div><button class="btn sm" data-reveal="${k}">Show</button>${c.trashable ? `<button class="btn sm danger" data-trash="${k}">Delete</button>` : '<span style="width:58px"></span>'}</div></div>`).join('') : '<div class="empty">Empty folder, or Windows does not allow reading it.</div>'}</div>`;
+    $$('.crumbs a', el).forEach((a) => (a.onclick = () => openDir(a.dataset.p === '~' ? '~' : a.dataset.p)));
+    $('#ex-up') && ($('#ex-up').onclick = () => openDir(expl.parent));
+    $('#ex-fresh').onclick = () => openDir(expl.path, true);
+    $$('[data-open]', el).forEach((a) => (a.onclick = () => openDir(expl.children[a.dataset.open].path)));
+    $$('[data-reveal]', el).forEach((b) => (b.onclick = () => api('reveal', { path: expl.children[b.dataset.reveal].path }).catch((e) => toast(e.message))));
+    $$('[data-trash]', el).forEach((b) => (b.onclick = () => trash(expl.children[b.dataset.trash], () => openDir(expl.path, true))));
+  } catch (e) { el.innerHTML = `<div class="card err">${esc(e.message)} <button class="link" onclick="openDir('~')">Go to your user folder</button></div>`; }
+}
+
+// ---------- startup ----------
+async function loadStartup() {
+  const el = $('#p-startup');
+  el.innerHTML = `<h1>Startup apps</h1><p class="lede">Apps that launch when you sign in. Fewer startup apps means a faster sign-in and more free memory all day.</p><div class="card loading"><span class="spin"></span>Reading startup apps…</div>`;
+  try {
+    const items = await api('startup');
+    $('#nb-startup').textContent = items.filter((i) => i.enabled).length;
+    const needAdmin = items.some((i) => i.needsAdmin);
+    const row = (i) => `<div class="row nolead" data-id="${esc(i.id)}">
+      <div class="main"><div class="name"><span>${esc(i.title)}</span>${i.impact ? `<span class="badge ${i.impact}">${i.impact} impact</span>` : ''}${i.missing ? '<span class="badge warn">App not found</span>' : ''}${i.source === 'store' ? '<span class="badge info">Store app</span>' : ''}</div>
+        <div class="note">${esc([i.company, i.ws ? `using ${fmt(i.ws)} now` : i.enabled ? 'not running now' : '', i.scope === 'machine' ? 'all users' : ''].filter(Boolean).join(' · '))}</div>
+        <div class="path">${esc(i.command || '')}</div></div>
+      <div class="side"><span class="swlabel">${i.enabled ? 'On' : 'Off'}</span><label class="sw"><input type="checkbox" ${i.enabled ? 'checked' : ''} ${i.needsAdmin || i.locked ? 'disabled' : ''} aria-label="Start ${esc(i.title)} at sign-in"><span></span></label></div></div>`;
+    const on = items.filter((i) => i.enabled), off = items.filter((i) => !i.enabled);
+    el.innerHTML = `<h1>Startup apps</h1><p class="lede">Apps that launch when you sign in. Fewer startup apps means a faster sign-in and more free memory all day.</p>
+      ${needAdmin ? adminBanner('Apps installed for all users can only be changed as administrator.') : ''}
+      <div class="toolbar"><div class="grow hint">Turning an app off only stops it starting automatically. Nothing is uninstalled, and Task Manager shows the same switch.</div><button class="btn sm" id="su-refresh">${ICON.refresh}Refresh</button></div>
+      <div class="card list" style="margin-bottom:10px"><h3><span>Start at sign-in</span><span>${on.length}</span></h3>${on.map(row).join('') || '<div class="empty">Nothing starts automatically.</div>'}</div>
+      ${off.length ? `<div class="card list"><h3><span>Turned off</span><span>${off.length}</span></h3>${off.map(row).join('')}</div>` : ''}`;
+    $('#su-refresh').onclick = loadStartup;
+    $$('.row[data-id]', el).forEach((r) => {
+      $('.main', r).onclick = () => r.classList.toggle('open');
+      const cb = $('input', r);
+      cb.onchange = async () => {
+        cb.disabled = true;
+        try { await api('startup', { id: r.dataset.id, enabled: cb.checked }); $('.swlabel', r).textContent = cb.checked ? 'On' : 'Off'; toast(`${items.find((i) => i.id === r.dataset.id).title} will ${cb.checked ? 'start' : 'no longer start'} at sign-in.`); loaded.overview = false; }
+        catch (e) { cb.checked = !cb.checked; toast(e.message); }
+        cb.disabled = false;
+      };
+    });
+  } catch (e) { el.innerHTML = `<h1>Startup apps</h1><div class="card err">${esc(e.message)}</div>`; }
+}
+
+// ---------- performance ----------
+const QUICK = [
+  { id: 'restart-explorer', icon: ICON.refresh, name: 'Restart Windows Explorer', note: 'Fixes a frozen or laggy taskbar, Start menu or File Explorer. Open folder windows close.', btn: 'Restart' },
+  { id: 'optimize-drive', icon: '<svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4"/></svg>', name: 'Optimize system drive', note: 'Sends TRIM to an SSD (or defragments a hard disk) so writes stay fast. Can take a few minutes.', btn: 'Optimize', admin: true },
+];
+const LINKS = [
+  ['ms-settings:appsfeatures', 'Uninstall apps you no longer use'],
+  ['ms-settings:windowsupdate', 'Windows Update'],
+  ['ms-settings:storagesense', 'Storage settings'],
+  ['ms-settings:powersleep', 'Power & battery'],
+  ['taskmgr', 'Task Manager'],
+  ['logs', 'Storage Cleaner action log'],
+];
+async function loadPerformance() {
+  const el = $('#p-performance');
+  el.innerHTML = `<h1>Performance</h1><p class="lede">Windows settings that make your PC feel faster. Every switch can be turned back.</p><div class="card loading"><span class="spin"></span>Reading settings…</div>`;
+  try {
+    const tw = await api('tweaks');
+    const rec = tw.filter((t) => t.recommended && !t.on && t.available && !t.locked);
+    el.innerHTML = `<h1>Performance</h1><p class="lede">Windows settings that make your PC feel faster. Every switch can be turned back.</p>
+      <div class="toolbar"><div class="grow hint">${rec.length ? `${rec.length} recommended setting${rec.length === 1 ? '' : 's'} not applied yet.` : 'All recommended settings are applied.'}</div>${rec.length ? `<button class="btn primary" id="tw-rec">${ICON.bolt}Apply recommended</button>` : ''}</div>
+      <div class="card list">${tw.map((t) => `<div class="row nolead" data-id="${t.id}"><div class="main"><div class="name"><span>${esc(t.name)}</span>${t.recommended ? '<span class="badge accent">Recommended</span>' : `<span class="badge ${t.risk}">${t.risk === 'caution' ? 'optional' : t.risk}</span>`}${t.locked ? '<span class="badge info">Admin</span>' : ''}</div><div class="note" style="white-space:normal">${esc(t.note)}</div></div>
+        <div class="side"><span class="swlabel">${t.on ? 'On' : 'Off'}</span><label class="sw"><input type="checkbox" ${t.on ? 'checked' : ''} ${t.locked || !t.available ? 'disabled' : ''} aria-label="${esc(t.name)}"><span></span></label></div></div>`).join('')}</div>
+      ${tw.some((t) => t.locked) ? `<div style="margin-top:10px">${adminBanner('Hibernation can only be changed as administrator.')}</div>` : ''}
+      <h2>Quick fixes</h2>
+      <div class="card list">${QUICK.map((q) => `<div class="qa"><div class="q">${q.icon}</div><div><b>${esc(q.name)}</b>${q.admin && !IS_ADMIN ? ' <span class="badge info">Admin</span>' : ''}<div class="note" style="white-space:normal">${esc(q.note)}</div></div><button class="btn" data-act="${q.id}" ${q.admin && !IS_ADMIN ? 'disabled' : ''}>${q.btn}</button></div>`).join('')}</div>
+      <h2>Windows shortcuts</h2>
+      <div class="fx">${LINKS.map(([t, n]) => `<button class="btn" data-open="${t}">${esc(n)}</button>`).join('')}</div>
+      <h2>What makes the biggest difference</h2>
+      <div class="card pad hint" style="font-size:13px;line-height:1.6">
+        1. <b>Restart regularly.</b> Shut down with Fast Startup on doesn't clear memory; Restart does.<br>
+        2. <b>Keep fewer apps and tabs open.</b> On 8 GB of RAM, each Chrome tab or Electron app (Slack, Discord, VS Code) can take 100–500 MB.<br>
+        3. <b>Turn off startup apps</b> you don't need the moment you sign in.<br>
+        4. <b>Keep 20% of drive ${esc(disk?.drive || 'C:')} free</b> so Windows has room for updates and virtual memory.<br>
+        5. <b>Hardware:</b> moving from 8 to 16 GB of RAM, or from a hard disk to an SSD, beats any software tweak.</div>`;
+    $$('.row[data-id]', el).forEach((r) => {
+      const cb = $('input', r);
+      cb.onchange = async () => {
+        const t = tw.find((x) => x.id === r.dataset.id);
+        if (t.id === 'hibernate' && cb.checked && !(await confirmBox('Turn off hibernation?', `<p>${esc(t.note)}</p>`, 'Turn off'))) { cb.checked = false; return; }
+        cb.disabled = true;
+        try { await api('tweaks', { id: t.id, on: cb.checked }); $('.swlabel', r).textContent = cb.checked ? 'On' : 'Off'; toast(`${t.name}: ${cb.checked ? 'on' : 'off'}.`); loaded.overview = false; }
+        catch (e) { cb.checked = !cb.checked; toast(e.message); }
+        cb.disabled = false;
+      };
+    });
+    $('#tw-rec') && ($('#tw-rec').onclick = async () => {
+      const ok = await confirmBox('Apply recommended settings?', `<ul>${rec.map((t) => `<li><b>${esc(t.name)}</b><div class="note">${esc(t.note)}</div></li>`).join('')}</ul><p class="hint">You can turn each one back off here.</p>`, 'Apply');
+      if (!ok) return;
+      for (const t of rec) { try { await api('tweaks', { id: t.id, on: true }); } catch (e) { toast(e.message); } }
+      toast('Recommended settings applied.'); loaded.overview = false; loadPerformance();
+    });
+    $$('[data-act]', el).forEach((b) => (b.onclick = async () => {
+      const q = QUICK.find((x) => x.id === b.dataset.act);
+      if (!(await confirmBox(q.name + '?', `<p>${esc(q.note)}</p>`, q.btn))) return;
+      const label = b.textContent; b.disabled = true; b.innerHTML = '<span class="spin"></span>Working…';
+      try { const r = await api('action', { id: q.id }); toast(r.message, 6000); } catch (e) { toast(e.message, 7000); }
+      b.disabled = false; b.textContent = label;
+    }));
+    $$('[data-open]', el).forEach((b) => (b.onclick = () => api('open', { target: b.dataset.open }).catch((e) => toast(e.message))));
+  } catch (e) { el.innerHTML = `<h1>Performance</h1><div class="card err">${esc(e.message)}</div>`; }
+}
+
+const LOADERS = { overview: loadOverview, memory: loadMemory, storage: loadStorage, startup: loadStartup, performance: loadPerformance };
+// Reload a page when it is revisited after something changed elsewhere.
+const _go = go;
+go = (p) => { if (loaded[p] === false) delete loaded[p]; _go(p); };
+$$('.navb').forEach((b) => (b.onclick = () => go(b.dataset.page)));
+
+live();
+let start = 'overview';
+try { start = localStorage.getItem('sc-page') || 'overview'; } catch {}
+go(LOADERS[start] ? start : 'overview');
+</script>
+</body>
+</html>
