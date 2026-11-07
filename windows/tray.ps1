@@ -21,7 +21,9 @@ Add-Type -Namespace SC -Name Native -MemberDefinition @'
 
 $Here = $PSScriptRoot
 $Data = Join-Path $env:LOCALAPPDATA 'Storage Cleaner'
-$AppProfile = Join-Path $Data 'window'
+$AppProfile = Join-Path $Data 'window'    # Edge fallback window profile
+$WebProfile = Join-Path $Data 'webview'   # native window (WebView2) profile
+$AppExe = Join-Path $Data 'app\StorageCleaner.exe'
 $SessionFile = Join-Path $Data 'session.json'
 $ServerLog = Join-Path $Data 'server.log'
 $StartupLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'Storage Cleaner.lnk'
@@ -29,6 +31,12 @@ New-Item -ItemType Directory -Force $Data | Out-Null
 $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 function Open-Window([string]$url) {
+  # The native window (built by build-window.ps1) has its own taskbar name and
+  # icon. Without it, fall back to an Edge app window.
+  if (Test-Path $AppExe) {
+    Start-Process $AppExe -ArgumentList @("`"$url`"", "`"$WebProfile`"")
+    return
+  }
   $edge = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") |
     Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
   if ($edge) {
@@ -135,10 +143,11 @@ function Start-Server {
   $psi.EnvironmentVariables['PORT'] = "$($script:port)"
   $psi.EnvironmentVariables['TOKEN'] = $script:token
   $psi.EnvironmentVariables['NO_OPEN'] = '1'
-  $psi.EnvironmentVariables['APP_PROFILE'] = $AppProfile
+  # Any browser process using a profile under this folder is our own window.
+  $psi.EnvironmentVariables['APP_PROFILE'] = $Data
   $psi.EnvironmentVariables['LOG_DIR'] = $Data
   $script:server = [System.Diagnostics.Process]::Start($psi)
-  @{ url = $script:url; pid = $PID } | ConvertTo-Json | Set-Content -Encoding UTF8 $SessionFile
+  @{ url = $script:url; pid = $PID; tray = $PSCommandPath } | ConvertTo-Json | Set-Content -Encoding UTF8 $SessionFile
 }
 
 function Stop-Server {
@@ -272,6 +281,9 @@ $timer.Interval = 3000
 $timer.add_Tick({ Update-Status })
 
 Start-Server
+# Build (or check) the native window while the server starts. The first run
+# downloads the WebView2 SDK; if that fails the Edge window is used instead.
+try { $null = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Here 'build-window.ps1') 2>&1 } catch { }
 if (-not (Wait-Server)) {
   $msg = (Get-Content $ServerLog -Tail 15 -ErrorAction SilentlyContinue) -join "`n"
   Set-Icon '!' $Red 'Storage Cleaner: could not start'

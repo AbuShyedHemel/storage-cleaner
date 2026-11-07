@@ -34,7 +34,7 @@ const WINDIR = ENV.SystemRoot || 'C:\\Windows';
 const PROGRAMDATA = ENV.ProgramData || 'C:\\ProgramData';
 const SYSDRIVE = (ENV.SystemDrive || 'C:').toUpperCase();
 const DATA_DIR = ENV.LOG_DIR || path.join(LOCAL, 'Storage Cleaner');
-const APP_PROFILE = ENV.APP_PROFILE || path.join(DATA_DIR, 'window');
+const APP_PROFILE = ENV.APP_PROFILE || DATA_DIR; // our own window's browser profiles live under here
 let PORT = Number(ENV.PORT ?? 7799);
 const TOKEN = ENV.TOKEN || crypto.randomBytes(16).toString('hex');
 
@@ -481,7 +481,7 @@ const CRITICAL = new Set(['system', 'registry', 'smss', 'csrss', 'wininit', 'win
 const memRegistry = new Map(); // group id -> pids
 
 async function memory() {
-  const [mem, procs, edge] = await Promise.all([helper('mem'), helper('procs'), helper('cmdlines', { names: ['msedge'] }).catch(() => [])]);
+  const [mem, procs, edge] = await Promise.all([helper('mem'), helper('procs'), helper('cmdlines', { names: ['msedge', 'msedgewebview2'] }).catch(() => [])]);
   const self = new Set([process.pid, process.ppid]);
   // The tray app (it wrote its pid to session.json) is part of us too.
   try { self.add(JSON.parse((await fs.readFile(path.join(DATA_DIR, 'session.json'), 'utf8')).replace(/^﻿/, '')).pid); } catch {}
@@ -491,7 +491,7 @@ async function memory() {
   const ownWindow = new Set(edge.filter((r) => r.cmd && r.cmd.toLowerCase().includes(prof)).map((r) => r.pid));
   const groups = new Map();
   for (const p of procs) {
-    const mine = ownWindow.has(p.pid);
+    const mine = ownWindow.has(p.pid) || p.name.toLowerCase() === 'storagecleaner';
     const key = mine ? 'storage cleaner window' : p.name.toLowerCase();
     let g = groups.get(key);
     if (!g) groups.set(key, (g = { key, name: p.name, title: mine ? 'Storage Cleaner window' : null, company: null, path: null, count: 0, ws: 0, priv: 0, cpu: 0, pids: [], services: 0, self: mine }));

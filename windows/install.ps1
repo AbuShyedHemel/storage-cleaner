@@ -27,7 +27,10 @@ if ($Uninstall) {
   Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
     Where-Object { $_.CommandLine -like '*tray.ps1*' } |
     ForEach-Object { & taskkill.exe /pid $_.ProcessId /t /f 2>$null | Out-Null }
+  Get-Process StorageCleaner -ErrorAction SilentlyContinue | Stop-Process -Force
+  Start-Sleep -Milliseconds 500
   foreach ($l in $Links) { if (Test-Path $l) { Remove-Item $l -Force; Write-Host "Removed $l" } }
+  Remove-Item 'HKCU:\Software\Storage Cleaner' -Recurse -Force -ErrorAction SilentlyContinue
   if (Test-Path $Data) { Remove-Item $Data -Recurse -Force -ErrorAction SilentlyContinue; Write-Host "Removed $Data" }
   Write-Host "`nStorage Cleaner was removed. Delete this folder to remove the program files too."
   return
@@ -39,44 +42,14 @@ if (-not (Get-Command node.exe -ErrorAction SilentlyContinue) -and -not (Test-Pa
 
 New-Item -ItemType Directory -Force $Data | Out-Null
 
-# App icon: a 256 px PNG wrapped in an .ico container.
-function New-AppIcon([string]$out) {
-  $s = 256
-  $bmp = New-Object System.Drawing.Bitmap $s, $s
-  $g = [System.Drawing.Graphics]::FromImage($bmp)
-  $g.SmoothingMode = 'AntiAlias'
-  $rect = New-Object System.Drawing.Rectangle 8, 8, ($s - 16), ($s - 16)
-  $brush = New-Object System.Drawing.Drawing2D.LinearGradientBrush $rect, ([System.Drawing.Color]::FromArgb(10, 132, 255)), ([System.Drawing.Color]::FromArgb(94, 92, 230)), 45
-  $p = New-Object System.Drawing.Drawing2D.GraphicsPath
-  $r = 56
-  $p.AddArc(8, 8, $r, $r, 180, 90); $p.AddArc($s - 8 - $r, 8, $r, $r, 270, 90)
-  $p.AddArc($s - 8 - $r, $s - 8 - $r, $r, $r, 0, 90); $p.AddArc(8, $s - 8 - $r, $r, $r, 90, 90); $p.CloseFigure()
-  $g.FillPath($brush, $p)
-  # Sparkle: a four-point star plus a small one.
-  function Star($cx, $cy, $R, $rr) {
-    $pts = for ($i = 0; $i -lt 8; $i++) {
-      $a = [Math]::PI / 4 * $i - [Math]::PI / 2
-      $len = if ($i % 2 -eq 0) { $R } else { $rr }
-      New-Object System.Drawing.PointF ($cx + $len * [Math]::Cos($a)), ($cy + $len * [Math]::Sin($a))
-    }
-    $g.FillPolygon([System.Drawing.Brushes]::White, [System.Drawing.PointF[]]$pts)
-  }
-  Star 112 120 78 20
-  Star 186 186 34 9
-  $g.Dispose()
-  $ms = New-Object System.IO.MemoryStream
-  $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-  $png = $ms.ToArray()
-  $bmp.Dispose()
-  $fs = [System.IO.File]::Create($out)
-  $w = New-Object System.IO.BinaryWriter $fs
-  $w.Write([UInt16]0); $w.Write([UInt16]1); $w.Write([UInt16]1)          # ICONDIR
-  $w.Write([Byte]0); $w.Write([Byte]0); $w.Write([Byte]0); $w.Write([Byte]0) # 256x256, no palette
-  $w.Write([UInt16]1); $w.Write([UInt16]32); $w.Write([UInt32]$png.Length); $w.Write([UInt32]22)
-  $w.Write($png)
-  $w.Close()
+# App icon and native window (downloads the WebView2 SDK once). If this fails,
+# Storage Cleaner still works and opens in an Edge app window instead.
+try {
+  $exe = & (Join-Path $Here 'build-window.ps1')
+  Write-Host "Built $exe"
+} catch {
+  Write-Warning "Could not build the app window ($($_.Exception.Message)). Storage Cleaner will open in an Edge window."
 }
-New-AppIcon $Ico
 
 function New-Link([string]$path, [string]$extra, [string]$hotkey = '') {
   $sh = New-Object -ComObject WScript.Shell

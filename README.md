@@ -230,6 +230,8 @@ storage-cleaner/
     ├── server.mjs             # Local server: memory, storage, startup apps, settings
     ├── helper.cs              # Native helper, compiled on first run with the in-box csc.exe
     ├── index.html             # Windows 11-style interface
+    ├── app.cs                 # Native app window (WebView2)
+    ├── build-window.ps1       # Builds the app window and icon
     ├── tray.ps1               # System tray app with live RAM icon
     ├── install.ps1            # Start menu / desktop / sign-in shortcuts, -Uninstall
     └── Storage Cleaner.cmd    # Double-click launcher

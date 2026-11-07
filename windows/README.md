@@ -22,7 +22,7 @@ Everything runs locally. There is no account, telemetry or network service, and 
 
 ## Install
 
-You need [Node.js](https://nodejs.org) 18 or later (`winget install OpenJS.NodeJS.LTS`). Nothing else: the native helper is compiled on first run with the C# compiler that ships with Windows.
+You need [Node.js](https://nodejs.org) 18 or later (`winget install OpenJS.NodeJS.LTS`). Nothing else: the native helper and the app window are compiled on first run with the C# compiler that ships with Windows. The first run also downloads Microsoft's WebView2 SDK (9 MB, kept: 850 KB) for the app window.
 
 ```powershell
 git clone https://github.com/AbuShyedHemel/storage-cleaner.git
@@ -117,7 +117,8 @@ Startup apps are switched with the same `StartupApproved` flags Task Manager use
 ```
  tray.ps1 (system tray, live RAM icon)
    ├─ starts  node server.mjs  on 127.0.0.1:<random port> with a random token
-   └─ opens   Edge --app=http://127.0.0.1:<port>/?t=<token>  (its own window and profile)
+   └─ opens   StorageCleaner.exe  (app.cs: native window with WebView2, own taskbar name and icon)
+                 falls back to an Edge app window if the window can't be built
 
  server.mjs  routes, catalog of cleanable items, health checks
    └─ helper.exe  (helper.cs, compiled once with the in-box .NET Framework csc.exe)
@@ -130,11 +131,15 @@ Startup apps are switched with the same `StartupApproved` flags Task Manager use
 | `server.mjs` | Local HTTP server: scans, cleanup, memory, startup apps, settings, security |
 | `helper.cs` | Native helper for everything Node can't do quickly on Windows |
 | `index.html` | Single-page Windows 11–style interface, no build step |
+| `app.cs` | The app window: WinForms + WebView2, dark title bar, remembers its size and position, opens outside links in your browser |
+| `build-window.ps1` | Downloads Microsoft's WebView2 SDK once from nuget.org (checksum pinned, Microsoft signatures checked), builds `StorageCleaner.exe` and the icon |
 | `tray.ps1` | Tray icon, server lifecycle, app window, Run as administrator |
-| `install.ps1` | Start menu / desktop / sign-in shortcuts and app icon; `-Uninstall` |
+| `install.ps1` | Builds the window; Start menu / desktop / sign-in shortcuts; `-Uninstall` |
 | `Storage Cleaner.cmd` | Double-click launcher |
 
-Data lives in `%LOCALAPPDATA%\Storage Cleaner` (`actions.log`, `server.log`, the compiled helper, the app window profile).
+Data lives in `%LOCALAPPDATA%\Storage Cleaner` (`actions.log`, `server.log`, the compiled helper, the app window in `app\`, its WebView2 profile, the SDK download cache).
+
+The window uses the WebView2 runtime that comes with Windows 10/11 (the same engine as Edge, but a separate app). You can pin it to the taskbar while it's open: right-click its taskbar button › **Pin to taskbar**.
 
 ### Configuration
 
